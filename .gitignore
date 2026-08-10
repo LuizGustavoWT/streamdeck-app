@@ -9,5 +9,7 @@ dist/
 .env.local
 android/
 ios/
+.codegraph
 .codegraph/
 .idea/
+.omo/
