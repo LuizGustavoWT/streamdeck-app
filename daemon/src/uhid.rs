@@ -110,7 +110,8 @@ impl VirtualDeck {
         let code = iow(UHID_TYPE, UHID_CREATE, size_of::<UhidCreateReq>() as u32);
         let ret = unsafe { libc::ioctl(fd, code as _, &create_req) };
         if ret != 0 {
-            return Err(format!("UHID_CREATE ioctl failed (errno: {})", ret));
+            let err = unsafe { *libc::__errno_location() };
+            return Err(format!("UHID_CREATE ioctl failed: ret={ret}, errno={err}"));
         }
 
         println!("[VirtualDeck] Device created (VID:{:04x} PID:{:04x})", STREAMDECK_VID, STREAMDECK_PID);
