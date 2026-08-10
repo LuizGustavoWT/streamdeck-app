@@ -119,6 +119,41 @@
           "FontUnderline": false
         }
       ]
+    },
+    {
+      "Name": "Multi Button",
+      "UUID": "com.streamdeckapp.mobile.multibutton",
+      "Tooltip": "Spans 2x1 or 2x2 buttons with dual-state toggle",
+      "Icon": "assets/custom-action-icon",
+      "DisableAutomaticStates": true,
+      "VisibleInActionsList": true,
+      "SupportedInMultiActions": true,
+      "PropertyInspectorPath": "pi/custombutton.html",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "actionDefaultImage",
+          "Name": "State 1",
+          "Title": "",
+          "ShowTitle": true,
+          "TitleColor": "#FFFFFF",
+          "TitleAlignment": "middle",
+          "FontStyle": "Regular",
+          "FontSize": "14",
+          "FontUnderline": false
+        },
+        {
+          "Image": "actionDefaultImage",
+          "Name": "State 2",
+          "Title": "",
+          "ShowTitle": true,
+          "TitleColor": "#e94560",
+          "TitleAlignment": "middle",
+          "FontStyle": "Regular",
+          "FontSize": "14",
+          "FontUnderline": false
+        }
+      ]
     }
   ]
 }

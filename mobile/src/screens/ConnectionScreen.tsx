@@ -42,7 +42,7 @@ export function ConnectionScreen({ navigation }: Props) {
   // Auto-navigate when connected
   useEffect(() => {
     if (isConnected) {
-      navigation.navigate('LayoutDesigner');
+      navigation.navigate('LivePreview');
     }
   }, [isConnected, navigation]);
 

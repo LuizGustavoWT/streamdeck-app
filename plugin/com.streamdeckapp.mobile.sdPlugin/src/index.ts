@@ -1,19 +1,17 @@
 /**
- * OpenDeck Plugin Entry Point — StreamDeck Mobile Bridge
+ * OpenDeck Plugin — StreamDeck Mobile Bridge
  *
- * Architecture:
- *   1. Connects to OpenDeck's WebSocket server (dynamic port from CLI args)
- *   2. Registers as a plugin with the OpenAction API
- *   3. Starts an HTTP + WebSocket server for the React Native app
- *   4. Translates mobile app commands → OpenDeck actions
- *   5. Forwards Stream Deck events → mobile app
- *
- * Launch: OpenDeck spawns this with:
- *   node dist/index.js -port PORT -pluginUUID UUID -registerEvent EVENT -info INFO_JSON
+ * Flow:
+ *   1. Plugin registers with OpenDeck via WebSocket
+ *   2. User drags actions onto Stream Deck buttons in OpenDeck UI
+ *   3. Plugin receives willAppear for each button → builds layout → sends to mobile
+ *   4. Mobile app configures button states → plugin sends setImage/setTitle to OpenDeck
+ *   5. Button presses (keyDown/keyUp) forwarded to mobile → mobile can toggle states
+ *   6. Plugin runs HTTP+WS server for mobile app communication
  */
 
 import { WebSocket } from 'ws';
-import { startMobileServer, type MobileBridge } from './server.js';
+import { startMobileServer, type MobileBridge, type DeckButton, type ButtonState, type DeckLayout } from './server.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,300 +23,243 @@ interface CliArgs {
 }
 
 interface OpenDeckInfo {
-  application?: {
-    font?: string;
-    language?: string;
-    platform?: string;
-    platformVersion?: string;
-    version?: string;
-  };
-  plugin?: {
-    uuid?: string;
-    version?: string;
-  };
-  devices?: DeviceInfo[];
+  application?: { version?: string };
+  devices?: { id: string; name: string; size: { columns: number; rows: number } }[];
 }
-
-interface DeviceInfo {
-  id: string;
-  name: string;
-  size: {
-    columns: number;
-    rows: number;
-  };
-}
-
-interface ButtonConfig {
-  id: string;
-  position: { column: number; row: number };
-  actionUuid: string;
-  settings: Record<string, unknown>;
-  state: ButtonState;
-  enabled: boolean;
-}
-
-interface ButtonState {
-  imageBase64: string | null;
-  title: string;
-  titleColor: string;
-  fontSize: number;
-  fontStyle: string;
-  showTitle: boolean;
-  titleAlignment: string;
-}
-
-interface StreamDeckLayout {
-  deviceId: string;
-  dimensions: { columns: number; rows: number };
-  buttons: ButtonConfig[];
-  name: string;
-}
-
-interface PluginToMobileEvent {
-  type: string;
-  [key: string]: unknown;
-}
-
-// ─── Constants ────────────────────────────────────────────────────────────────
 
 const ACTION_UUIDS = {
   CUSTOM_BUTTON: 'com.streamdeckapp.mobile.custombutton',
   URL_OPENER: 'com.streamdeckapp.mobile.urlopener',
   HOTKEY: 'com.streamdeckapp.mobile.hotkey',
   TEXT_INPUT: 'com.streamdeckapp.mobile.textinput',
+  MULTI_BUTTON: 'com.streamdeckapp.mobile.multibutton',
 } as const;
 
-// ─── CLI Arg Parsing ──────────────────────────────────────────────────────────
+const ACTION_NAMES: Record<string, string> = {
+  [ACTION_UUIDS.CUSTOM_BUTTON]: 'Custom Button',
+  [ACTION_UUIDS.URL_OPENER]: 'URL Opener',
+  [ACTION_UUIDS.HOTKEY]: 'Hotkey',
+  [ACTION_UUIDS.TEXT_INPUT]: 'Text Sender',
+  [ACTION_UUIDS.MULTI_BUTTON]: 'Multi Button',
+};
 
 function parseArgs(argv: string[]): Partial<CliArgs> {
   const args: Partial<CliArgs> = {};
   for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '-port' && i + 1 < argv.length) {
-      args.port = parseInt(argv[++i], 10);
-    } else if (argv[i] === '-pluginUUID' && i + 1 < argv.length) {
-      args.pluginUUID = argv[++i];
-    } else if (argv[i] === '-registerEvent' && i + 1 < argv.length) {
-      args.registerEvent = argv[++i];
-    } else if (argv[i] === '-info' && i + 1 < argv.length) {
-      try {
-        args.info = JSON.parse(argv[++i]) as OpenDeckInfo;
-      } catch {
-        args.info = {};
-      }
+    if (argv[i] === '-port' && i + 1 < argv.length) args.port = parseInt(argv[++i], 10);
+    else if (argv[i] === '-pluginUUID' && i + 1 < argv.length) args.pluginUUID = argv[++i];
+    else if (argv[i] === '-registerEvent' && i + 1 < argv.length) args.registerEvent = argv[++i];
+    else if (argv[i] === '-info' && i + 1 < argv.length) {
+      try { args.info = JSON.parse(argv[++i]) as OpenDeckInfo; } catch { args.info = {}; }
     }
   }
   return args;
+}
+
+// ─── State helpers ────────────────────────────────────────────────────────────
+
+function defaultState(overrides?: Partial<ButtonState>): ButtonState {
+  return {
+    imageBase64: null,
+    title: '',
+    titleColor: '#FFFFFF',
+    fontSize: 14,
+    fontStyle: 'Regular',
+    showTitle: true,
+    titleAlignment: 'middle',
+    ...overrides,
+  };
+}
+
+function sendSetImage(ws: WebSocket, context: string, imageBase64: string, stateIndex = 0) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ event: 'setImage', context, payload: { image: imageBase64, target: stateIndex } }));
+}
+
+function sendSetTitle(ws: WebSocket, context: string, title: string, stateIndex = 0) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ event: 'setTitle', context, payload: { title, target: stateIndex } }));
+}
+
+function sendToDeck(ws: WebSocket, event: string, context: string, payload: Record<string, unknown>) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ event, context, payload }));
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 const cliArgs = parseArgs(process.argv);
 console.log(`[StreamDeckMobile] Plugin started (PID ${process.pid})`);
-console.log(`[StreamDeckMobile] Args: port=${cliArgs.port}, uuid=${cliArgs.pluginUUID}, event=${cliArgs.registerEvent}`);
 
 if (!cliArgs.port || !cliArgs.pluginUUID || !cliArgs.registerEvent) {
-  // Running standalone (dev mode without OpenDeck) — start mobile server only
-  console.log('[StreamDeckMobile] Mode: standalone (no OpenDeck args) — only mobile server');
-  const { emitter } = startMobileServer({
-    opendeckWs: null,
-    pluginUUID: 'dev-mode',
-    devices: [],
-  });
+  console.log('[StreamDeckMobile] Mode: standalone — mobile server only');
+  const { emitter } = startMobileServer({ pluginUUID: 'dev-mode', devices: [], bridge: undefined });
 } else {
-  console.log(`[StreamDeckMobile] Connecting to OpenDeck on port ${cliArgs.port}...`);
+  console.log(`[StreamDeckMobile] Connecting to OpenDeck WS on port ${cliArgs.port}`);
 
   const ws = new WebSocket(`ws://localhost:${cliArgs.port}`);
+  let devices: OpenDeckInfo['devices'] = cliArgs.info?.devices ?? [];
+  let activeDeviceId = devices[0]?.id ?? null;
 
-  /** Map of context → buttonId (for tracking action instances) */
-  const contextMap = new Map<string, string>();
-  /** Map of buttonId → context */
-  const buttonMap = new Map<string, string>();
-  /** Current device info */
-  let devices: DeviceInfo[] = cliArgs.info?.devices ?? [];
-  /** Active device ID */
-  let activeDeviceId: string | null = devices.length > 0 ? devices[0].id : null;
-  /** Next button index for generating IDs */
-  let buttonCounter = 0;
+  // Layout tracking: context → DeckButton
+  const buttonsByContext = new Map<string, DeckButton>();
+  let currentProfile = 'Default';
 
-  // ─── WebSocket event handlers ──────────────────────────────────────────────
+  function buildLayout(): DeckLayout {
+    const devs = devices ?? [];
+    const dev = devs.find(d => d.id === activeDeviceId) ?? devs[0];
+    return {
+      deviceId: activeDeviceId ?? '',
+      dimensions: dev?.size ?? { columns: 5, rows: 3 },
+      buttons: [...buttonsByContext.values()],
+      profileName: currentProfile,
+    };
+  }
+
+  function emitLayout() {
+    mobileEmitter.emit('toMobile', { type: 'layoutUpdate', layout: buildLayout() });
+  }
+
+  // ─── OpenDeck WebSocket handlers ──────────────────────────────────────────
 
   ws.on('open', () => {
-    console.log('[StreamDeckMobile] WebSocket connected, registering...');
-    ws.send(JSON.stringify({
-      event: cliArgs.registerEvent,
-      uuid: cliArgs.pluginUUID,
-    }));
-    console.log('[StreamDeckMobile] Plugin registered');
+    console.log('[StreamDeckMobile] Connected to OpenDeck, registering...');
+    ws.send(JSON.stringify({ event: cliArgs.registerEvent, uuid: cliArgs.pluginUUID }));
   });
 
   ws.on('message', (raw: Buffer) => {
     let msg: Record<string, unknown>;
-    try {
-      msg = JSON.parse(raw.toString()) as Record<string, unknown>;
-    } catch {
-      return;
-    }
+    try { msg = JSON.parse(raw.toString()) as Record<string, unknown>; } catch { return; }
 
     switch (msg.event) {
       case 'deviceDidConnect': {
-        const device: DeviceInfo = {
+        const dev = {
           id: msg.device as string,
           name: (msg.deviceInfo as Record<string, unknown>)?.name as string ?? `Device ${msg.device}`,
-          size: (msg.deviceInfo as Record<string, unknown>)?.size as DeviceInfo['size'] ?? { columns: 5, rows: 3 },
+          size: (msg.deviceInfo as Record<string, unknown>)?.size as { columns: number; rows: number } ?? { columns: 5, rows: 3 },
         };
-        devices = [...devices.filter(d => d.id !== device.id), device];
-        if (!activeDeviceId) activeDeviceId = device.id;
-        mobileEventEmitter.emit('toMobile', { type: 'deviceConnected', device });
+        devices = [...(devices ?? []).filter(d => d.id !== dev.id), dev];
+        if (!activeDeviceId) activeDeviceId = dev.id;
+        mobileEmitter.emit('toMobile', { type: 'deviceConnected', device: dev });
         break;
       }
 
-      case 'deviceDidDisconnect': {
-        devices = devices.filter(d => d.id !== (msg.device as string));
-        if (activeDeviceId === (msg.device as string)) {
-          activeDeviceId = devices.length > 0 ? devices[0].id : null;
-        }
-        mobileEventEmitter.emit('toMobile', { type: 'deviceDisconnected', deviceId: msg.device });
+      case 'deviceDidDisconnect':
+        devices = (devices ?? []).filter(d => d.id !== (msg.device as string));
+        if (activeDeviceId === (msg.device as string)) activeDeviceId = devices[0]?.id ?? null;
+        mobileEmitter.emit('toMobile', { type: 'deviceDisconnected', deviceId: msg.device });
         break;
-      }
 
       case 'willAppear': {
         const ctx = msg.context as string;
-        if (contextMap.has(ctx)) {
-          const buttonId = contextMap.get(ctx)!;
-          mobileEventEmitter.emit('toMobile', {
-            type: 'buttonStateChanged',
-            buttonId,
-            state: extractState(msg.payload as Record<string, unknown> | undefined),
-          });
-        }
+        const action = msg.action as string;
+        const payload = msg.payload as Record<string, unknown> | undefined;
+        const coords = (payload?.coordinates as { column: number; row: number }) ?? { column: 0, row: 0 };
+        const settings = (payload?.settings as Record<string, unknown>) ?? {};
+
+        const actionName = ACTION_NAMES[action] ?? action.split('.').pop() ?? action;
+
+        // Parse group info from settings
+        const groupId = (settings.groupId as string) ?? null;
+        const groupSize = (settings.groupSize as DeckButton['groupSize']) ?? '1x1';
+        const groupOffset = (settings.groupOffset as DeckButton['groupOffset']) ?? { col: 0, row: 0 };
+
+        const button: DeckButton = {
+          context: ctx,
+          actionUuid: action,
+          actionName,
+          column: coords.column,
+          row: coords.row,
+          stateIndex: (payload?.state as number) ?? 0,
+          states: [defaultState({ title: actionName }), defaultState({ title: actionName, titleColor: '#e94560' })],
+          settings,
+          groupId,
+          groupSize,
+          groupOffset,
+        };
+
+        buttonsByContext.set(ctx, button);
+        mobileEmitter.emit('toMobile', { type: 'buttonAppeared', button });
+        emitLayout();
+
+        // Apply existing state to deck
+        const st = button.states[button.stateIndex];
+        if (st.title) sendSetTitle(ws, ctx, st.title, button.stateIndex);
+        if (st.imageBase64) sendSetImage(ws, ctx, st.imageBase64, button.stateIndex);
+
+        console.log(`[StreamDeckMobile] Button appeared: ${actionName} at (${coords.column},${coords.row})`);
         break;
       }
 
       case 'willDisappear': {
         const ctx = msg.context as string;
-        contextMap.delete(ctx);
+        buttonsByContext.delete(ctx);
+        mobileEmitter.emit('toMobile', { type: 'buttonDisappeared', context: ctx });
+        emitLayout();
         break;
       }
 
       case 'keyDown': {
         const ctx = msg.context as string;
-        if (contextMap.has(ctx)) {
-          const buttonId = contextMap.get(ctx)!;
-          const payload = msg.payload as Record<string, unknown> | undefined;
-          mobileEventEmitter.emit('toMobile', {
-            type: 'keyDown',
-            buttonId,
-            position: payload?.coordinates ?? { column: 0, row: 0 },
-          });
-        }
+        const payload = msg.payload as Record<string, unknown> | undefined;
+        const coords = payload?.coordinates as { column: number; row: number } ?? { column: 0, row: 0 };
+        mobileEmitter.emit('toMobile', { type: 'keyDown', context: ctx, column: coords.column, row: coords.row });
         break;
       }
 
       case 'keyUp': {
         const ctx = msg.context as string;
-        if (contextMap.has(ctx)) {
-          const buttonId = contextMap.get(ctx)!;
-          const payload = msg.payload as Record<string, unknown> | undefined;
-          mobileEventEmitter.emit('toMobile', {
-            type: 'keyUp',
-            buttonId,
-            position: payload?.coordinates ?? { column: 0, row: 0 },
-          });
+        const payload = msg.payload as Record<string, unknown> | undefined;
+        const coords = payload?.coordinates as { column: number; row: number } ?? { column: 0, row: 0 };
+        mobileEmitter.emit('toMobile', { type: 'keyUp', context: ctx, column: coords.column, row: coords.row });
+
+        // Auto-toggle for custom/multi buttons
+        const button = buttonsByContext.get(ctx);
+        if (button && (button.actionUuid === ACTION_UUIDS.CUSTOM_BUTTON || button.actionUuid === ACTION_UUIDS.MULTI_BUTTON)) {
+          if (button.states.length >= 2) {
+            const newIdx = button.stateIndex === 0 ? 1 : 0;
+            button.stateIndex = newIdx;
+            const st = button.states[newIdx];
+
+            sendToDeck(ws, 'setState', ctx, { state: newIdx });
+            if (st.title) sendSetTitle(ws, ctx, st.title, newIdx);
+            if (st.imageBase64) sendSetImage(ws, ctx, st.imageBase64, newIdx);
+
+            mobileEmitter.emit('toMobile', { type: 'buttonStateChanged', context: ctx, stateIndex: newIdx, state: st });
+          }
         }
+        break;
+      }
+
+      case 'didReceiveSettings': {
+        const ctx = msg.context as string;
+        const payload = msg.payload as Record<string, unknown> | undefined;
+        const button = buttonsByContext.get(ctx);
+        if (button && payload?.settings) {
+          button.settings = { ...button.settings, ...(payload.settings as Record<string, unknown>) };
+        }
+        break;
+      }
+
+      case 'sendToPlugin': {
+        // Property inspector → plugin data
         break;
       }
     }
   });
 
-  ws.on('error', (err: Error) => {
-    console.error('[StreamDeckMobile] WebSocket error:', err.message);
-  });
+  ws.on('error', (err: Error) => console.error('[StreamDeckMobile] WS error:', err.message));
+  ws.on('close', () => console.log('[StreamDeckMobile] OpenDeck disconnected'));
 
-  ws.on('close', () => {
-    console.log('[StreamDeckMobile] Disconnected from OpenDeck');
-  });
-
-  // ─── Bridge implementation ─────────────────────────────────────────────────
+  // ─── Mobile bridge ─────────────────────────────────────────────────────────
 
   const bridge: MobileBridge = {
-    pushLayout(layout: StreamDeckLayout) {
-      if (ws.readyState !== WebSocket.OPEN) {
-        return { success: false, message: 'Not connected to OpenDeck' };
-      }
-
-      // Clear old mappings
-      contextMap.clear();
-      buttonMap.clear();
-
-      if (layout.deviceId && layout.deviceId !== activeDeviceId) {
-        activeDeviceId = layout.deviceId;
-      }
-
-      const columns = layout.dimensions?.columns ?? 5;
-      const rows = layout.dimensions?.rows ?? 3;
-
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < columns; col++) {
-          const button = layout.buttons?.find(
-            b => b.position.column === col && b.position.row === row
-          );
-
-          if (button?.actionUuid) {
-            const ctx = `${cliArgs.pluginUUID}_${Date.now()}_${buttonCounter++}`;
-            contextMap.set(ctx, button.id);
-            buttonMap.set(button.id, ctx);
-          }
-        }
-      }
-
-      return { success: true, message: `Layout pushed: ${layout.buttons?.length ?? 0} buttons` };
-    },
-
-    updateButton(buttonId: string, config: Partial<ButtonConfig>) {
-      const ctx = buttonMap.get(buttonId);
-      if (!ctx || ws.readyState !== WebSocket.OPEN) return;
-
-      if (config.state) {
-        const st = config.state;
-        if (st.imageBase64) {
-          ws.send(JSON.stringify({
-            event: 'setImage',
-            context: ctx,
-            payload: { image: st.imageBase64, target: 0 },
-          }));
-        }
-        if (st.title !== undefined) {
-          ws.send(JSON.stringify({
-            event: 'setTitle',
-            context: ctx,
-            payload: { title: st.title, target: 0 },
-          }));
-        }
-      }
-
-      if (config.settings) {
-        ws.send(JSON.stringify({
-          event: 'setSettings',
-          context: ctx,
-          payload: config.settings,
-        }));
-      }
-    },
-
-    removeButton(buttonId: string) {
-      const ctx = buttonMap.get(buttonId);
-      if (ctx) {
-        contextMap.delete(ctx);
-        buttonMap.delete(buttonId);
-      }
-    },
-
     getStatus() {
       return {
-        status: (ws.readyState === WebSocket.OPEN ? 'connected' : 'disconnected'),
+        status: (ws.readyState === WebSocket.OPEN ? 'connected' : 'disconnected') as 'connected' | 'disconnected',
         pluginVersion: '1.0.0',
-        opendeckVersion: (cliArgs.info?.application?.version as string) ?? 'unknown',
-        devices,
+        opendeckVersion: cliArgs.info?.application?.version ?? 'unknown',
+        devices: devices ?? [],
         activeDeviceId,
       };
     },
@@ -326,77 +267,58 @@ if (!cliArgs.port || !cliArgs.pluginUUID || !cliArgs.registerEvent) {
     getActionCatalog() {
       return {
         actions: [
-          {
-            uuid: ACTION_UUIDS.CUSTOM_BUTTON,
-            name: 'Custom Button',
-            tooltip: 'A customizable button with image and text',
-            icon: 'custom-action-icon',
-            states: 1,
-            controllers: ['Keypad'],
-            settingsSchema: [
-              { key: 'label', label: 'Label', type: 'text' as const, default: '' },
-              { key: 'color', label: 'Color', type: 'color' as const, default: '#FFFFFF' },
-            ],
-          },
-          {
-            uuid: ACTION_UUIDS.URL_OPENER,
-            name: 'URL Opener',
-            tooltip: 'Opens a website or application URL',
-            icon: 'url-action-icon',
-            states: 1,
-            controllers: ['Keypad'],
-            settingsSchema: [
-              { key: 'url', label: 'URL', type: 'text' as const, default: 'https://' },
-            ],
-          },
-          {
-            uuid: ACTION_UUIDS.HOTKEY,
-            name: 'Hotkey',
-            tooltip: 'Sends a keyboard shortcut',
-            icon: 'hotkey-action-icon',
-            states: 1,
-            controllers: ['Keypad'],
-            settingsSchema: [
-              { key: 'modifiers', label: 'Modifiers (Ctrl,Alt,Shift,Win)', type: 'text' as const, default: '' },
-              { key: 'key', label: 'Key', type: 'text' as const, default: '' },
-            ],
-          },
-          {
-            uuid: ACTION_UUIDS.TEXT_INPUT,
-            name: 'Text Sender',
-            tooltip: 'Types a text string',
-            icon: 'text-action-icon',
-            states: 1,
-            controllers: ['Keypad'],
-            settingsSchema: [
-              { key: 'text', label: 'Text to type', type: 'text' as const, default: '' },
-            ],
-          },
+          { uuid: ACTION_UUIDS.CUSTOM_BUTTON, name: 'Custom Button', tooltip: 'Configurable button with 2 states', icon: 'custom-action-icon', stateCount: 2, controllers: ['Keypad'], supportsMultiButton: false },
+          { uuid: ACTION_UUIDS.URL_OPENER, name: 'URL Opener', tooltip: 'Opens a URL', icon: 'url-action-icon', stateCount: 1, controllers: ['Keypad'], supportsMultiButton: false },
+          { uuid: ACTION_UUIDS.HOTKEY, name: 'Hotkey', tooltip: 'Keyboard shortcut', icon: 'hotkey-action-icon', stateCount: 1, controllers: ['Keypad'], supportsMultiButton: false },
+          { uuid: ACTION_UUIDS.TEXT_INPUT, name: 'Text Sender', tooltip: 'Types text', icon: 'text-action-icon', stateCount: 1, controllers: ['Keypad'], supportsMultiButton: false },
+          { uuid: ACTION_UUIDS.MULTI_BUTTON, name: 'Multi Button', tooltip: 'Spans 2x1 or 2x2 buttons', icon: 'custom-action-icon', stateCount: 2, controllers: ['Keypad'], supportsMultiButton: true, settingsSchema: [
+            { key: 'groupSize', label: 'Size', type: 'select', default: '2x1', options: [{ label: '2x1 (wide)', value: '2x1' }, { label: '2x2 (large)', value: '2x2' }] },
+          ]},
         ],
       };
     },
+
+    getLayout(): DeckLayout { return buildLayout(); },
+
+    setButtonState(context: string, stateIndex: number, state: Partial<ButtonState>) {
+      const button = buttonsByContext.get(context);
+      if (!button) return;
+      button.states[stateIndex] = { ...button.states[stateIndex], ...state };
+      button.stateIndex = stateIndex;
+
+      const st = button.states[stateIndex];
+      sendToDeck(ws, 'setState', context, { state: stateIndex });
+      if (st.title !== undefined) sendSetTitle(ws, context, st.title, stateIndex);
+      if (st.imageBase64) sendSetImage(ws, context, st.imageBase64, stateIndex);
+
+      mobileEmitter.emit('toMobile', { type: 'buttonStateChanged', context, stateIndex, state: st });
+    },
+
+    toggleButtonState(context: string) {
+      const button = buttonsByContext.get(context);
+      if (!button || button.states.length < 2) return;
+      const newIdx = button.stateIndex === 0 ? 1 : 0;
+      this.setButtonState(context, newIdx, button.states[newIdx]);
+    },
+
+    setGroupState(groupId: string, stateIndex: number, state: Partial<ButtonState>) {
+      for (const [, button] of buttonsByContext) {
+        if (button.groupId === groupId) {
+          this.setButtonState(button.context, stateIndex, state);
+        }
+      }
+    },
+
+    setButtonSettings(context: string, settings: Record<string, unknown>) {
+      sendToDeck(ws, 'setSettings', context, settings);
+    },
   };
 
-  // ─── Start mobile HTTP/WS server ───────────────────────────────────────────
+  // ─── Start mobile server ────────────────────────────────────────────────────
 
-  const { emitter: mobileEventEmitter } = startMobileServer({
-    opendeckWs: ws,
+  const { emitter: mobileEmitter } = startMobileServer({
     pluginUUID: cliArgs.pluginUUID,
-    devices,
+    devices: devices ?? [],
     bridge,
   });
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function extractState(payload?: Record<string, unknown>): ButtonState {
-  return {
-    imageBase64: (payload?.image as string) ?? null,
-    title: (payload?.title as string) ?? '',
-    titleColor: (payload?.titleColor as string) ?? '#FFFFFF',
-    fontSize: parseInt(String(payload?.fontSize ?? '14'), 10) || 14,
-    fontStyle: (payload?.fontStyle as string) ?? 'Regular',
-    showTitle: payload?.showTitle !== false,
-    titleAlignment: (payload?.titleAlignment as string) ?? 'middle',
-  };
 }

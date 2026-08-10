@@ -1,86 +1,36 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
-import type { ButtonConfig } from '../services/OpenDeckBridge';
+import { TouchableOpacity, Text, StyleSheet } from 'react-native';
+import type { DeckButton } from '../../shared/protocol';
 
-interface Props {
-  config: ButtonConfig | null;
-  size: number;
-  onPress: () => void;
-}
+interface Props { button: DeckButton | null; size: number; onPress: () => void; }
 
-/**
- * Individual Stream Deck button on the grid.
- * Shows the button's title and color if configured, or a placeholder.
- */
-export function StreamDeckButton({ config, size, onPress }: Props) {
-  if (!config) {
+export function StreamDeckButton({ button, size, onPress }: Props) {
+  if (!button) {
     return (
-      <TouchableOpacity
-        style={[styles.button, styles.emptyButton, { width: size, height: size }]}
-        onPress={onPress}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.plusText}>+</Text>
+      <TouchableOpacity style={[styles.btn, styles.empty, { width: size, height: size }]} onPress={onPress} activeOpacity={0.7}>
+        <Text style={styles.emptyT}>·</Text>
       </TouchableOpacity>
     );
   }
 
-  const { state, actionUuid } = config;
-  const actionName = actionUuid.split('.').pop()?.replace(/([A-Z])/g, ' $1').trim() ?? actionUuid;
+  const st = button.states[button.stateIndex] ?? button.states[0];
+  const fontSize = Math.max(8, size / 5);
 
   return (
-    <TouchableOpacity
-      style={[
-        styles.button,
-        styles.configuredButton,
-        { width: size, height: size },
-      ]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <Text
-        style={[
-          styles.title,
-          {
-            color: state.titleColor,
-            fontSize: Math.max(8, size / 5),
-            fontWeight: state.fontStyle === 'Bold' ? '700' : '400',
-          },
-        ]}
-        numberOfLines={3}
-        ellipsizeMode="tail"
-      >
-        {state.title || actionName}
+    <TouchableOpacity style={[styles.btn, styles.filled, { width: size, height: size }]} onPress={onPress} activeOpacity={0.7}>
+      <Text style={[styles.title, { color: st?.titleColor ?? '#fff', fontSize, fontWeight: (st?.fontStyle === 'Bold' ? '700' : '400') as '700' | '400' }]} numberOfLines={3} ellipsizeMode="tail">
+        {st?.title || button.actionName}
       </Text>
+      {button.groupSize !== '1x1' && <Text style={styles.groupBadge}>{button.groupSize}</Text>}
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  button: {
-    borderRadius: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 4,
-  },
-  emptyButton: {
-    backgroundColor: '#1a1a2e',
-    borderWidth: 1,
-    borderColor: '#0f3460',
-    borderStyle: 'dashed',
-  },
-  configuredButton: {
-    backgroundColor: '#16213e',
-    borderWidth: 1,
-    borderColor: '#533483',
-  },
-  plusText: {
-    color: '#444',
-    fontSize: 20,
-    fontWeight: '300',
-  },
-  title: {
-    textAlign: 'center',
-    lineHeight: undefined,
-  },
+  btn: { borderRadius: 6, justifyContent: 'center', alignItems: 'center', padding: 4 },
+  empty: { backgroundColor: '#1a1a2e', borderWidth: 1, borderColor: '#0f3460', borderStyle: 'dashed' },
+  emptyT: { color: '#333', fontSize: 16 },
+  filled: { backgroundColor: '#16213e', borderWidth: 1, borderColor: '#533483' },
+  title: { textAlign: 'center' },
+  groupBadge: { position: 'absolute', bottom: 2, right: 4, color: '#533483', fontSize: 8, fontWeight: '700' },
 });

@@ -1,43 +1,26 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { StreamDeckButton } from './StreamDeckButton';
-import type { ButtonConfig } from '../services/OpenDeckBridge';
+import type { DeckButton } from '../../shared/protocol';
 
 interface Props {
   columns: number;
   rows: number;
-  buttons: ButtonConfig[];
+  buttons: DeckButton[];
   onButtonPress: (col: number, row: number) => void;
 }
 
-/**
- * Renders a Stream Deck button grid matching the device dimensions.
- */
 export function StreamDeckGrid({ columns, rows, buttons, onButtonPress }: Props) {
-  // Calculate button size based on screen width (roughly 360px usable)
-  const gap = 4;
-  const containerPadding = 8;
-  const maxWidth = 360;
-  const buttonSize = Math.floor(
-    (maxWidth - containerPadding * 2 - gap * (columns - 1)) / columns
-  );
+  const gap = 4; const pad = 8; const maxW = 360;
+  const size = Math.floor((maxW - pad * 2 - gap * (columns - 1)) / columns);
 
   return (
-    <View style={[styles.container, { maxWidth: maxWidth + containerPadding * 2 }]}>
+    <View style={[styles.cont, { maxWidth: maxW + pad * 2 }]}>
       {Array.from({ length: rows }, (_, row) => (
         <View key={row} style={[styles.row, { gap }]}>
           {Array.from({ length: columns }, (_, col) => {
-            const button = buttons.find(
-              (b) => b.position.column === col && b.position.row === row
-            );
-            return (
-              <StreamDeckButton
-                key={`${col}-${row}`}
-                config={button ?? null}
-                size={buttonSize}
-                onPress={() => onButtonPress(col, row)}
-              />
-            );
+            const btn = buttons.find(b => b.column === col && b.row === row);
+            return <StreamDeckButton key={`${col}-${row}`} button={btn ?? null} size={size} onPress={() => onButtonPress(col, row)} />;
           })}
         </View>
       ))}
@@ -46,14 +29,6 @@ export function StreamDeckGrid({ columns, rows, buttons, onButtonPress }: Props)
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#0d1117',
-    borderRadius: 16,
-    padding: 8,
-    alignSelf: 'center',
-  },
-  row: {
-    flexDirection: 'row',
-    marginBottom: 4,
-  },
+  cont: { backgroundColor: '#0d1117', borderRadius: 16, padding: 8, alignSelf: 'center' },
+  row: { flexDirection: 'row', marginBottom: 4 },
 });

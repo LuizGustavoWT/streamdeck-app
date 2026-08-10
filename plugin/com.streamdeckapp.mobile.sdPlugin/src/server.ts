@@ -1,14 +1,8 @@
 /**
- * HTTP + WebSocket server that the React Native app connects to.
+ * HTTP + WebSocket server for the React Native app.
  *
- * REST API:
- *   GET  /status   → PluginStatus
- *   GET  /layout   → GetLayoutResponse
- *   POST /layout   → PushLayoutResponse (pushes layout to Stream Deck)
- *   GET  /actions  → GetActionsResponse
- *
- * WebSocket (same port):
- *   ws://host:PORT/ws → bidirectional real-time events
+ * REST: GET /status, GET /layout, GET /actions, GET /ping
+ * WebSocket: ws://host:PORT/ws — bidirectional real-time events
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -16,29 +10,7 @@ import { WebSocketServer, type WebSocket as WsClient } from 'ws';
 import { EventEmitter } from 'node:events';
 import { networkInterfaces } from 'node:os';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface DeviceInfo {
-  id: string;
-  name: string;
-  size: { columns: number; rows: number };
-}
-
-export interface StreamDeckLayout {
-  deviceId: string;
-  dimensions: { columns: number; rows: number };
-  buttons: ButtonConfig[];
-  name: string;
-}
-
-export interface ButtonConfig {
-  id: string;
-  position: { column: number; row: number };
-  actionUuid: string;
-  settings: Record<string, unknown>;
-  state: ButtonState;
-  enabled: boolean;
-}
+// ─── Re-export types used by index.ts ─────────────────────────────────────────
 
 export interface ButtonState {
   imageBase64: string | null;
@@ -50,50 +22,67 @@ export interface ButtonState {
   titleAlignment: string;
 }
 
-export interface PluginStatus {
-  status: 'connected' | 'disconnected' | 'no_device';
-  pluginVersion: string;
-  opendeckVersion: string;
-  devices: DeviceInfo[];
-  activeDeviceId: string | null;
+export interface DeckButton {
+  context: string;
+  actionUuid: string;
+  actionName: string;
+  column: number;
+  row: number;
+  stateIndex: number;
+  states: ButtonState[];
+  settings: Record<string, unknown>;
+  groupId: string | null;
+  groupSize: '1x1' | '2x1' | '1x2' | '2x2';
+  groupOffset: { col: number; row: number };
 }
 
-export interface ActionInfo {
-  uuid: string;
-  name: string;
-  tooltip: string;
-  icon: string;
-  states: number;
-  controllers: string[];
-  settingsSchema?: ActionSetting[];
-}
-
-export interface ActionSetting {
-  key: string;
-  label: string;
-  type: 'text' | 'number' | 'boolean' | 'select' | 'color';
-  default: unknown;
-  options?: { label: string; value: string }[];
-}
-
-export interface PushLayoutResponse {
-  success: boolean;
-  message: string;
+export interface DeckLayout {
+  deviceId: string;
+  dimensions: { columns: number; rows: number };
+  buttons: DeckButton[];
+  profileName: string;
 }
 
 export interface MobileBridge {
-  pushLayout(layout: StreamDeckLayout): PushLayoutResponse;
-  updateButton(buttonId: string, config: Partial<ButtonConfig>): void;
-  removeButton(buttonId: string): void;
-  getStatus(): PluginStatus;
-  getActionCatalog(): { actions: ActionInfo[] };
+  getStatus(): {
+    status: 'connected' | 'disconnected';
+    pluginVersion: string;
+    opendeckVersion: string;
+    devices: { id: string; name: string; size: { columns: number; rows: number } }[];
+    activeDeviceId: string | null;
+  };
+  getActionCatalog(): {
+    actions: {
+      uuid: string; name: string; tooltip: string; icon: string;
+      stateCount: number; controllers: string[]; supportsMultiButton: boolean;
+      settingsSchema?: { key: string; label: string; type: string; default: unknown; options?: { label: string; value: string }[] }[];
+    }[];
+  };
+  getLayout(): DeckLayout;
+  setButtonState(context: string, stateIndex: number, state: Partial<ButtonState>): void;
+  toggleButtonState(context: string): void;
+  setGroupState(groupId: string, stateIndex: number, state: Partial<ButtonState>): void;
+  setButtonSettings(context: string, settings: Record<string, unknown>): void;
 }
 
 interface ServerConfig {
-  opendeckWs: unknown | null;
   pluginUUID: string;
-  devices: DeviceInfo[];
+  devices: { id: string; name: string; size: { columns: number; rows: number } }[];
   bridge?: MobileBridge;
+}
+
+// ─── Default no-op bridge ────────────────────────────────────────────────────
+
+function noopBridge(): MobileBridge {
+  return {
+    getStatus: () => ({ status: 'disconnected', pluginVersion: '1.0.0', opendeckVersion: 'standalone', devices: [], activeDeviceId: null }),
+    getActionCatalog: () => ({ actions: [] }),
+    getLayout: () => ({ deviceId: '', dimensions: { columns: 5, rows: 3 }, buttons: [], profileName: '' }),
+    setButtonState: () => {},
+    toggleButtonState: () => {},
+    setGroupState: () => {},
+    setButtonSettings: () => {},
+  };
 }
 
 // ─── Server ───────────────────────────────────────────────────────────────────
@@ -101,37 +90,14 @@ interface ServerConfig {
 export function startMobileServer(config: ServerConfig) {
   const PORT = 58123;
   const emitter = new EventEmitter();
-
-  // Default no-op bridge for standalone mode
-  const bridge: MobileBridge = config.bridge ?? {
-    pushLayout: () => ({ success: false, message: 'Standalone mode - no OpenDeck connection' }),
-    updateButton: () => {},
-    removeButton: () => {},
-    getStatus: () => ({
-      status: 'disconnected',
-      pluginVersion: '1.0.0',
-      opendeckVersion: 'standalone',
-      devices: config.devices,
-      activeDeviceId: null,
-    }),
-    getActionCatalog: () => ({
-      actions: [],
-    }),
-  };
-
-  // ─── HTTP Server ─────────────────────────────────────────────────────────
+  const bridge = config.bridge ?? noopBridge();
 
   const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
-    // CORS headers for mobile app
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
     const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
 
@@ -150,143 +116,87 @@ export function startMobileServer(config: ServerConfig) {
           break;
         }
 
-        case '/layout': {
-          if (req.method === 'GET') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ layout: null }));
-          } else if (req.method === 'POST') {
-            let body = '';
-            req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-            req.on('end', () => {
-              try {
-                const layout = JSON.parse(body) as StreamDeckLayout;
-                const result = bridge.pushLayout(layout);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(result));
-                emitter.emit('toMobile', { type: 'layoutChanged', layout });
-              } catch (err) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                  success: false,
-                  message: err instanceof Error ? err.message : 'Invalid JSON',
-                }));
-              }
-            });
-          }
+        case '/layout':
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ layout: bridge.getLayout() }));
           break;
-        }
 
-        case '/actions': {
+        case '/actions':
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(bridge.getActionCatalog()));
           break;
-        }
 
-        default: {
+        default:
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Not found' }));
-        }
       }
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        error: err instanceof Error ? err.message : 'Internal error',
-      }));
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : 'Internal error' }));
     }
   });
 
-  // ─── WebSocket Server ───────────────────────────────────────────────────
+  // ─── WebSocket ────────────────────────────────────────────────────────────
 
   const wss = new WebSocketServer({ server: httpServer });
-
-  /** Connected mobile clients */
   const mobileClients = new Set<WsClient>();
 
   wss.on('connection', (ws: WsClient, req: IncomingMessage) => {
-    if (req.url !== '/ws') {
-      ws.close(4000, 'Use /ws endpoint for WebSocket');
-      return;
-    }
+    if (req.url !== '/ws') { ws.close(4000, 'Use /ws endpoint'); return; }
 
     console.log('[StreamDeckMobile] Mobile client connected');
     mobileClients.add(ws);
 
-    // Send initial status
     ws.send(JSON.stringify({
       type: 'connected',
-      status: bridge.getStatus(),
+      status: { ...bridge.getStatus(), serverIPs: getLocalIPs(), serverPort: PORT },
     }));
+
+    // Send current layout immediately
+    ws.send(JSON.stringify({ type: 'layoutUpdate', layout: bridge.getLayout() }));
 
     ws.on('message', (raw: Buffer) => {
       let msg: Record<string, unknown>;
-      try {
-        msg = JSON.parse(raw.toString()) as Record<string, unknown>;
-      } catch {
-        return;
-      }
+      try { msg = JSON.parse(raw.toString()) as Record<string, unknown>; } catch { return; }
 
       switch (msg.type) {
-        case 'pushLayout':
-          bridge.pushLayout(msg.layout as StreamDeckLayout);
-          break;
-
-        case 'updateButton':
-          bridge.updateButton(msg.buttonId as string, msg.config as Partial<ButtonConfig>);
-          break;
-
-        case 'removeButton':
-          bridge.removeButton(msg.buttonId as string);
-          break;
-
-        case 'addButton':
-          bridge.pushLayout({
-            deviceId: bridge.getStatus().activeDeviceId ?? '',
-            dimensions: { columns: 5, rows: 3 },
-            buttons: [msg.button as ButtonConfig],
-            name: 'Mobile Layout',
-          });
-          break;
-
         case 'requestLayout':
-          ws.send(JSON.stringify({ type: 'layoutChanged', layout: null }));
+          ws.send(JSON.stringify({ type: 'layoutUpdate', layout: bridge.getLayout() }));
           break;
-
-        default:
+        case 'setButtonState':
+          bridge.setButtonState(msg.context as string, msg.stateIndex as number, msg.state as Partial<ButtonState>);
+          break;
+        case 'setButtonSettings':
+          bridge.setButtonSettings(msg.context as string, msg.settings as Record<string, unknown>);
+          break;
+        case 'toggleButtonState':
+          bridge.toggleButtonState(msg.context as string);
+          break;
+        case 'setGroupState':
+          bridge.setGroupState(msg.groupId as string, msg.stateIndex as number, msg.state as Partial<ButtonState>);
           break;
       }
     });
 
-    ws.on('close', () => {
-      console.log('[StreamDeckMobile] Mobile client disconnected');
-      mobileClients.delete(ws);
-    });
-
-    ws.on('error', (err: Error) => {
-      console.error('[StreamDeckMobile] Mobile WS error:', err.message);
-      mobileClients.delete(ws);
-    });
+    ws.on('close', () => { mobileClients.delete(ws); console.log('[StreamDeckMobile] Mobile client disconnected'); });
+    ws.on('error', (err: Error) => { mobileClients.delete(ws); console.error('[StreamDeckMobile] Mobile WS error:', err.message); });
   });
 
-  // ─── Forward events from OpenDeck → Mobile clients ──────────────────────
+  // ─── Forward events to mobile ─────────────────────────────────────────────
 
   emitter.on('toMobile', (event: unknown) => {
     const data = JSON.stringify(event);
     for (const client of mobileClients) {
-      if (client.readyState === 1) { // WebSocket.OPEN
-        client.send(data);
-      }
+      if (client.readyState === 1) client.send(data);
     }
   });
 
-  // ─── Start listening ─────────────────────────────────────────────────────
+  // ─── Start listening ───────────────────────────────────────────────────────
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     const ips = getLocalIPs();
-    console.log(`[StreamDeckMobile] HTTP+WS server listening on port ${PORT}`);
-    console.log(`[StreamDeckMobile] Reachable at:`);
+    console.log(`[StreamDeckMobile] Server listening on port ${PORT}`);
     ips.forEach(ip => console.log(`[StreamDeckMobile]   http://${ip}:${PORT}`));
-    console.log(`[StreamDeckMobile]   http://localhost:${PORT}`);
-    console.log(`[StreamDeckMobile] Test from phone browser: http://<desktop-ip>:${PORT}/ping`);
   });
 
   return { emitter, httpServer, wss };
@@ -298,9 +208,7 @@ function getLocalIPs(): string[] {
   for (const [, addrs] of Object.entries(interfaces)) {
     if (!addrs) continue;
     for (const addr of addrs) {
-      if (addr.family === 'IPv4' && !addr.internal) {
-        ips.push(addr.address);
-      }
+      if (addr.family === 'IPv4' && !addr.internal) ips.push(addr.address);
     }
   }
   return ips;

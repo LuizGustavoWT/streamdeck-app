@@ -1,102 +1,60 @@
-import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-} from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
-import { useBridge } from '../hooks/useBridge';
-import { useLayout } from '../hooks/useLayout';
+import { onEvent, onConnectionStateChange, requestLayout, getConnectionState } from '../services/OpenDeckBridge';
 import { StreamDeckGrid } from '../components/StreamDeckGrid';
-import type { PluginToMobileEvent } from '../services/OpenDeckBridge';
+import type { DeckLayout, PluginToMobileEvent } from '../../shared/protocol';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LivePreview'>;
 
 export function LivePreviewScreen({ navigation }: Props) {
-  const { lastEvent, connectionState } = useBridge();
-  const { layout, updateButtonState } = useLayout(5, 3);
-  const [eventLog, setEventLog] = useState<string[]>([]);
+  const [layout, setLayout] = useState<DeckLayout | null>(null);
+  const [cs, setCs] = useState(getConnectionState());
+  const [log, setLog] = useState<string[]>([]);
 
   useEffect(() => {
-    if (lastEvent) {
-      const timestamp = new Date().toLocaleTimeString();
-      let logLine = `[${timestamp}] ${lastEvent.type}`;
-
-      if (lastEvent.type === 'keyDown') {
-        logLine += ` — button ${lastEvent.buttonId}`;
-        // Flash the button visual
-        updateButtonState(lastEvent.buttonId as string, {
-          titleColor: '#e94560',
-        });
-        setTimeout(() => {
-          updateButtonState(lastEvent.buttonId as string, {
-            titleColor: '#FFFFFF',
-          });
-        }, 200);
+    const u1 = onConnectionStateChange(setCs);
+    const u2 = onEvent((ev: PluginToMobileEvent) => {
+      const ts = new Date().toLocaleTimeString();
+      switch (ev.type) {
+        case 'layoutUpdate': setLayout(ev.layout); break;
+        case 'buttonAppeared': setLog(l => [`[${ts}] + ${ev.button.actionName} (${ev.button.column},${ev.button.row})`, ...l].slice(0, 30)); break;
+        case 'buttonDisappeared': setLog(l => [`[${ts}] - btn`, ...l].slice(0, 30)); break;
+        case 'keyDown': setLog(l => [`[${ts}] ▼ key (${ev.column},${ev.row})`, ...l].slice(0, 30)); break;
+        case 'keyUp': setLog(l => [`[${ts}] ▲ key (${ev.column},${ev.row})`, ...l].slice(0, 30)); break;
       }
+    });
+    if (cs === 'connected') requestLayout();
+    return () => { u1(); u2(); };
+  }, [cs]);
 
-      if (lastEvent.type === 'keyUp') {
-        logLine += ` — button ${lastEvent.buttonId}`;
-      }
-
-      if (lastEvent.type === 'deviceConnected') {
-        logLine += ` — ${(lastEvent as PluginToMobileEvent & { device: { name: string } }).device?.name ?? 'Unknown'}`;
-      }
-
-      setEventLog(prev => [logLine, ...prev].slice(0, 20));
-    }
-  }, [lastEvent, updateButtonState]);
-
-  const handleButtonPress = (col: number, row: number) => {
-    // In preview mode, taps are just for show
-  };
+  const handlePress = useCallback((col: number, row: number) => {
+    const btn = layout?.buttons.find(b => b.column === col && b.row === row);
+    if (btn) navigation.navigate('ButtonEditor', { column: col, row, context: btn.context });
+  }, [layout, navigation]);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Connection indicator */}
-      <View style={styles.statusBar}>
-        <View
-          style={[
-            styles.statusDot,
-            {
-              backgroundColor:
-                connectionState === 'connected' ? '#4ade80' : '#e94560',
-            },
-          ]}
-        />
-        <Text style={styles.statusText}>
-          {connectionState === 'connected' ? 'Connected' : 'Disconnected'}
-        </Text>
+    <ScrollView style={styles.cont} contentContainerStyle={styles.inner}>
+      <View style={styles.bar}>
+        <View style={[styles.dot, { backgroundColor: cs === 'connected' ? '#4ade80' : '#e94560' }]} />
+        <Text style={styles.barT}>{cs === 'connected' ? 'Connected' : cs}{layout ? ` — ${layout.buttons.length} buttons` : ''}</Text>
       </View>
-
-      {/* Stream Deck Mirror */}
-      <View style={styles.gridContainer}>
-        <Text style={styles.sectionTitle}>Stream Deck Mirror</Text>
-        <StreamDeckGrid
-          columns={layout.dimensions.columns}
-          rows={layout.dimensions.rows}
-          buttons={layout.buttons}
-          onButtonPress={handleButtonPress}
-        />
-      </View>
-
-      {/* Event Log */}
-      <View style={styles.logContainer}>
-        <Text style={styles.sectionTitle}>Event Log</Text>
-        <View style={styles.logBox}>
-          {eventLog.length === 0 ? (
-            <Text style={styles.logEmpty}>
-              Press buttons on your Stream Deck to see events here...
-            </Text>
-          ) : (
-            eventLog.map((entry, i) => (
-              <Text key={i} style={styles.logEntry}>
-                {entry}
-              </Text>
-            ))
-          )}
+      {layout && layout.buttons.length > 0 ? (
+        <View style={styles.gw}><StreamDeckGrid columns={layout.dimensions.columns} rows={layout.dimensions.rows} buttons={layout.buttons} onButtonPress={handlePress} /></View>
+      ) : (
+        <View style={styles.place}>
+          <Text style={styles.pIcon}>🎛️</Text>
+          <Text style={styles.pT}>No buttons on the Stream Deck yet</Text>
+          <Text style={styles.pSub}>Open OpenDeck, create a profile, and drag "StreamDeck Mobile" actions onto buttons.</Text>
+          <TouchableOpacity style={styles.refBtn} onPress={() => requestLayout()}><Text style={styles.refT}>Refresh</Text></TouchableOpacity>
+        </View>
+      )}
+      <View style={styles.logSec}>
+        <Text style={styles.logT}>Events</Text>
+        <View style={styles.logB}>
+          {log.length === 0 ? <Text style={styles.logE}>Press buttons on your Stream Deck...</Text>
+            : log.map((e, i) => <Text key={i} style={styles.logL}>{e}</Text>)}
         </View>
       </View>
     </ScrollView>
@@ -104,71 +62,16 @@ export function LivePreviewScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  statusBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    padding: 10,
-    backgroundColor: '#16213e',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#0f3460',
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 8,
-  },
-  statusText: {
-    color: '#e0e0e0',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#a0a0b0',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  gridContainer: {
-    marginBottom: 24,
-  },
-  logContainer: {
-    flex: 1,
-  },
-  logBox: {
-    backgroundColor: '#0d1117',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#0f3460',
-    minHeight: 200,
-    maxHeight: 300,
-  },
-  logEmpty: {
-    color: '#555',
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: 40,
-    fontStyle: 'italic',
-  },
-  logEntry: {
-    color: '#4ade80',
-    fontSize: 12,
-    fontFamily: 'monospace',
-    marginBottom: 3,
-    lineHeight: 18,
-  },
+  cont: { flex: 1 }, inner: { padding: 16, paddingBottom: 40 },
+  bar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 10, backgroundColor: '#16213e', borderRadius: 8, borderWidth: 1, borderColor: '#0f3460', marginBottom: 16 },
+  dot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 }, barT: { color: '#e0e0e0', fontSize: 14, fontWeight: '500' },
+  gw: { alignItems: 'center', marginBottom: 16 },
+  place: { alignItems: 'center', padding: 40, backgroundColor: '#16213e', borderRadius: 12, borderWidth: 1, borderColor: '#0f3460', marginBottom: 16 },
+  pIcon: { fontSize: 48, marginBottom: 12 }, pT: { fontSize: 16, fontWeight: '600', color: '#e0e0e0', marginBottom: 8 },
+  pSub: { fontSize: 13, color: '#a0a0b0', textAlign: 'center', lineHeight: 20 },
+  refBtn: { marginTop: 16, backgroundColor: '#533483', borderRadius: 8, paddingHorizontal: 24, paddingVertical: 10 }, refT: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  logSec: { marginTop: 8 }, logT: { fontSize: 12, color: '#a0a0b0', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  logB: { backgroundColor: '#0d1117', borderRadius: 8, padding: 12, borderWidth: 1, borderColor: '#0f3460', minHeight: 150, maxHeight: 300 },
+  logE: { color: '#555', fontSize: 13, textAlign: 'center', marginTop: 40, fontStyle: 'italic' },
+  logL: { color: '#4ade80', fontSize: 11, fontFamily: 'monospace', marginBottom: 3 },
 });
