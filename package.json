@@ -9,9 +9,9 @@
     "mobile"
   ],
   "scripts": {
-    "mobile:start": "cd mobile && NODE_OPTIONS='--no-experimental-strip-types' npx expo start",
-    "mobile:android": "cd mobile && NODE_OPTIONS='--no-experimental-strip-types' npx expo start --android",
-    "plugin:dev": "cd plugin/com.streamdeckapp.mobile.sdPlugin && NODE_OPTIONS='--no-experimental-strip-types' tsx src/index.ts",
+    "mobile:start": "cd mobile && npx expo start",
+    "mobile:android": "cd mobile && npx expo start --android",
+    "plugin:dev": "cd plugin/com.streamdeckapp.mobile.sdPlugin && npx tsx src/index.ts",
     "plugin:build": "cd plugin/com.streamdeckapp.mobile.sdPlugin && npm run build",
     "lint": "cd mobile && npx eslint ."
   }

@@ -19,9 +19,6 @@
       },
       "package": "com.streamdeckapp.mobile",
       "permissions": ["INTERNET", "ACCESS_NETWORK_STATE", "ACCESS_WIFI_STATE"]
-    },
-    "plugins": [
-      "expo-network"
-    ]
+    }
   }
 }
