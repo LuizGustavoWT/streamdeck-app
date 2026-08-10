@@ -69,10 +69,19 @@ streamdeck-app/
 **Prerequisite: Node.js 20+** must be installed on the desktop running OpenDeck.
 
 ```bash
-# Install Node.js 22 LTS (if not already installed)
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt install -y nodejs
+# Using nvm (recommended)
+nvm install 22
+nvm use 22
+nvm alias default 22
 ```
+
+> **nvm users**: Make sure `nvm alias default 22` is set so OpenDeck can find `node`.
+> Verify with `node --version` in a **new terminal** before starting OpenDeck.
+>
+> If OpenDeck can't find `node` (launched from desktop icon), create a symlink:
+> ```bash
+> sudo ln -s "$(which node)" /usr/local/bin/node
+> ```
 
 Copy the plugin into OpenDeck's plugins directory:
 
