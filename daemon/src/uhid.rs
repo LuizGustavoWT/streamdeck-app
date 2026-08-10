@@ -91,10 +91,10 @@ impl VirtualDeck {
         name[..33].copy_from_slice(b"StreamDeck Mobile (Virtual MK.2)\0");
 
         let mut phys = [0u8; 64];
-        phys[..18].copy_from_slice(b"virtual-streamdeck\0");
+        phys[..19].copy_from_slice(b"virtual-streamdeck\0");
 
         let mut uniq = [0u8; 64];
-        uniq[..12].copy_from_slice(b"SD-MOBILE-01\0");
+        uniq[..13].copy_from_slice(b"SD-MOBILE-01\0");
 
         let create_req = UhidCreateReq {
             name, phys, uniq,
