@@ -108,6 +108,7 @@ impl VirtualDeck {
         };
 
         let code = iow(UHID_TYPE, UHID_CREATE, size_of::<UhidCreateReq>() as u32);
+        eprintln!("ioctl=0x{code:08x} type={} nr={} size={}", UHID_TYPE, UHID_CREATE, size_of::<UhidCreateReq>());
         let ret = unsafe { libc::ioctl(fd, code as _, &create_req) };
         if ret != 0 {
             let err = unsafe { *libc::__errno_location() };
