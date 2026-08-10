@@ -313,7 +313,7 @@ if (!cliArgs.port || !cliArgs.pluginUUID || !cliArgs.registerEvent) {
 
     getStatus() {
       return {
-        status: (ws.readyState === WebSocket.OPEN ? 'connected' : 'disconnected') as const,
+        status: (ws.readyState === WebSocket.OPEN ? 'connected' : 'disconnected'),
         pluginVersion: '1.0.0',
         opendeckVersion: (cliArgs.info?.application?.version as string) ?? 'unknown',
         devices,
