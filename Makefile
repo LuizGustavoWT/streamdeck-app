@@ -1,71 +1,74 @@
-.PHONY: all plugin-build plugin-zip plugin-clean mobile-start help
+.PHONY: all plugin-build plugin-zip plugin-deps plugin-clean mobile-start help
 
-PLUGIN_DIR := plugin/com.streamdeckapp.mobile.sdPlugin
-PLUGIN_SRC := $(PLUGIN_DIR)/src
-PLUGIN_DIST := $(PLUGIN_DIR)/dist
+PLUGIN_DIR  := plugin/com.streamdeckapp.mobile.sdPlugin
 PLUGIN_NAME := com.streamdeckapp.mobile.sdPlugin
-PLUGIN_ZIP := $(PLUGIN_NAME).zip
-MOBILE_DIR := mobile
+PLUGIN_ZIP  := $(PLUGIN_NAME).zip
 
-# ─── Default ───────────────────────────────────────────────────────────────────
+all: plugin-build plugin-deps plugin-zip
 
-all: plugin-build plugin-zip
+# ─── Plugin: Build ──────────────────────────────────────────────────────────────
 
-# ─── Plugin ────────────────────────────────────────────────────────────────────
+plugin-build:
+	cd $(PLUGIN_DIR) && npm install --silent && npx tsc
+	@echo "[OK] Plugin built to $(PLUGIN_DIR)/dist/"
 
-plugin-install:
-	@echo "📦 Installing plugin dependencies..."
-	cd $(PLUGIN_DIR) && npm install
+# ─── Plugin: Production dependencies ────────────────────────────────────────────
+# npm workspaces hoists deps to root — copy only runtime deps (ws) into plugin dir.
+# Dev deps (typescript, tsx, @types) are not needed at runtime.
 
-plugin-build: plugin-install
-	@echo "🔨 Building plugin (TypeScript → JavaScript)..."
-	cd $(PLUGIN_DIR) && npx tsc
-	@echo "✅ Plugin built to $(PLUGIN_DIST)/"
+plugin-deps:
+	@rm -rf $(PLUGIN_DIR)/node_modules
+	@mkdir -p $(PLUGIN_DIR)/node_modules
+	@if [ -d node_modules/ws ]; then \
+		cp -r node_modules/ws $(PLUGIN_DIR)/node_modules/ws; \
+		echo "[OK] Bundled ws (runtime only)"; \
+	else \
+		echo "[ERROR] ws not found — run 'npm install' at project root first"; \
+		exit 1; \
+	fi
 
-plugin-zip: plugin-build
-	@echo "📦 Creating plugin archive..."
-	cd $(PLUGIN_DIR) && \
-		zip -r ../../$(PLUGIN_ZIP) \
-			manifest.json \
-			dist/ \
-			pi/ \
-			assets/ \
-			-x "*.tsbuildinfo" "*.map" 2>/dev/null || \
-		zip -r ../../$(PLUGIN_ZIP) \
-			manifest.json \
-			dist/ \
-			pi/ \
-			assets/
-	@echo "✅ Plugin archive: $(PLUGIN_ZIP)"
+# ─── Plugin: Zip ────────────────────────────────────────────────────────────────
+# Zips from plugin/ so the .sdPlugin folder is preserved inside the archive.
+# OpenDeck expects: <name>.sdPlugin/manifest.json at the root of the extracted folder.
+
+plugin-zip: plugin-build plugin-deps
+	cd plugin && zip -r ../$(PLUGIN_ZIP) $(PLUGIN_NAME) \
+		-x "$(PLUGIN_NAME)/src/*" \
+		-x "$(PLUGIN_NAME)/tsconfig.json" \
+		-x "$(PLUGIN_NAME)/dist/*.d.ts" \
+		-x "$(PLUGIN_NAME)/dist/*.map" \
+		-x "$(PLUGIN_NAME)/node_modules/.package-lock.json" \
+		-x "*.tsbuildinfo"
+	@echo "[OK] Plugin archive: $(PLUGIN_ZIP)"
+	@echo ""
+	@echo "To install in OpenDeck:"
+	@echo "  unzip $(PLUGIN_ZIP) -d ~/.local/share/opendeck/plugins/"
+	@echo "  # or on Windows:"
+	@echo "  unzip $(PLUGIN_ZIP) -d %APPDATA%/opendeck/plugins/"
+	@echo ""
+	@echo "Then restart OpenDeck."
+
+# ─── Plugin: Clean ──────────────────────────────────────────────────────────────
 
 plugin-clean:
-	@echo "🧹 Cleaning plugin build..."
-	rm -rf $(PLUGIN_DIST)
+	rm -rf $(PLUGIN_DIR)/dist
+	rm -rf $(PLUGIN_DIR)/node_modules
 	rm -f $(PLUGIN_ZIP)
-	@echo "✅ Cleaned"
+	@echo "[OK] Cleaned"
 
 # ─── Mobile ────────────────────────────────────────────────────────────────────
 
-mobile-install:
-	@echo "📦 Installing mobile dependencies..."
-	cd $(MOBILE_DIR) && npm install
-
-mobile-start: mobile-install
-	@echo "🚀 Starting Expo dev server..."
-	cd $(MOBILE_DIR) && npx expo start --port 8082
+mobile-start:
+	cd mobile && npx expo start --port 8082
 
 # ─── Help ──────────────────────────────────────────────────────────────────────
 
 help:
 	@echo "StreamDeck Mobile — Makefile"
 	@echo ""
-	@echo "Plugin:"
-	@echo "  make plugin-build    Build plugin (TS → JS)"
-	@echo "  make plugin-zip      Build + create .zip for OpenDeck"
-	@echo "  make plugin-clean    Remove dist/ and .zip"
-	@echo ""
-	@echo "Mobile:"
-	@echo "  make mobile-start    Install deps + start Expo dev server"
-	@echo ""
-	@echo "All:"
-	@echo "  make                 Build plugin + zip"
+	@echo "  make plugin-build   Build plugin (TypeScript -> JavaScript)"
+	@echo "  make plugin-deps    Copy production deps into plugin dir"
+	@echo "  make plugin-zip     Build + bundle deps + create .zip"
+	@echo "  make plugin-clean   Remove dist/, node_modules/, .zip"
+	@echo "  make mobile-start   Start Expo dev server"
+	@echo "  make                Build plugin + deps + zip"
