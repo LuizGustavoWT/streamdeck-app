@@ -82,10 +82,23 @@ daemon-build:
 	@echo "[OK] Daemon built: daemon/target/release/sd-virtual-deck"
 
 daemon-start: daemon-build
-	@echo "Loading uhid kernel module..."
-	@sudo modprobe uhid 2>/dev/null || echo "[WARN] Run: sudo modprobe uhid"
-	@echo "Starting virtual deck daemon..."
-	./daemon/target/release/sd-virtual-deck
+	@echo ""
+	@if [ ! -c /dev/uhid ]; then \
+		echo "Loading uhid kernel module..."; \
+		sudo modprobe uhid; \
+	fi
+	@if [ -r /dev/uhid ] && [ -w /dev/uhid ]; then \
+		echo "Starting virtual deck daemon..."; \
+		./daemon/target/release/sd-virtual-deck; \
+	else \
+		echo ""; \
+		echo "Permission denied on /dev/uhid. Run:"; \
+		echo "  sudo ./daemon/target/release/sd-virtual-deck"; \
+		echo ""; \
+		echo "Or fix permissions permanently:"; \
+		echo "  sudo chmod 666 /dev/uhid"; \
+		exit 1; \
+	fi
 
 # ─── Dev: rebuild plugin + daemon + deploy + start app ───────────────────────────
 
