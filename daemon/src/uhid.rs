@@ -5,7 +5,7 @@ use std::mem::{ManuallyDrop, size_of};
 use std::slice;
 
 fn iow(ty: u8, nr: u8, size: u32) -> u32 {
-    ((ty as u32) << 8) | (nr as u32) | (size << 16)
+    (1 << 30) | ((ty as u32) << 8) | (nr as u32) | (size << 16)
 }
 
 const UHID_TYPE: u8 = b'H';
