@@ -83,6 +83,12 @@ daemon-build:
 
 daemon-start: daemon-build
 	@echo ""
+	@if [ "$$(id -u)" = "0" ]; then \
+		echo "ERROR: Do not run 'sudo make daemon-start'."; \
+		echo "       Run 'make daemon-build' as your user, then:"; \
+		echo "       sudo ./daemon/target/release/sd-virtual-deck"; \
+		exit 1; \
+	fi
 	@if [ ! -c /dev/uhid ]; then \
 		echo "Loading uhid kernel module..."; \
 		sudo modprobe uhid; \
@@ -92,10 +98,10 @@ daemon-start: daemon-build
 		./daemon/target/release/sd-virtual-deck; \
 	else \
 		echo ""; \
-		echo "Permission denied on /dev/uhid. Run:"; \
+		echo "No permission to access /dev/uhid."; \
 		echo "  sudo ./daemon/target/release/sd-virtual-deck"; \
 		echo ""; \
-		echo "Or fix permissions permanently:"; \
+		echo "Or fix permanently:"; \
 		echo "  sudo chmod 666 /dev/uhid"; \
 		exit 1; \
 	fi
