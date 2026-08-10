@@ -3,7 +3,16 @@
 PLUGIN_DIR  := plugin/com.streamdeckapp.mobile.sdPlugin
 PLUGIN_NAME := com.streamdeckapp.mobile.sdPlugin
 PLUGIN_ZIP  := $(PLUGIN_NAME).zip
-PLUGINS_DIR := $(HOME)/.local/share/opendeck/plugins
+
+# Auto-detect OpenDeck plugins directory (Flatpak vs native)
+OPENDECK_CONFIG := $(shell find $(HOME)/.var/app/me.amankhanna.opendeck/config/opendeck -maxdepth 0 -type d 2>/dev/null)
+ifneq ($(OPENDECK_CONFIG),)
+  PLUGINS_DIR := $(HOME)/.var/app/me.amankhanna.opendeck/config/opendeck/plugins
+  OPENDECK_TYPE := flatpak
+else
+  PLUGINS_DIR := $(HOME)/.local/share/opendeck/plugins
+  OPENDECK_TYPE := native
+endif
 
 all: plugin-build plugin-deps plugin-zip
 
@@ -42,15 +51,10 @@ plugin-zip: plugin-build plugin-deps
 		-x "*.tsbuildinfo"
 	@echo "[OK] Plugin archive: $(PLUGIN_ZIP)"
 	@echo ""
-	@echo "To install in OpenDeck:"
-	@echo "  unzip $(PLUGIN_ZIP) -d ~/.local/share/opendeck/plugins/"
-	@echo "  # or on Windows:"
-	@echo "  unzip $(PLUGIN_ZIP) -d %APPDATA%/opendeck/plugins/"
+	@echo "Install manually:"
+	@echo "  unzip $(PLUGIN_ZIP) -d $(PLUGINS_DIR)"
 	@echo ""
-	@echo "Requirements: Node.js 20+ must be installed system-wide."
-	@echo "  nvm install 22 && nvm use 22 && nvm alias default 22"
-	@echo ""
-	@echo "Then restart OpenDeck."
+	@echo "or run: make dev"
 
 # ─── Plugin: Clean ──────────────────────────────────────────────────────────────
 
@@ -69,11 +73,13 @@ mobile-start:
 
 dev: plugin-zip
 	@echo ""
+	@echo "OpenDeck: $(OPENDECK_TYPE) → $(PLUGINS_DIR)"
 	@mkdir -p "$(PLUGINS_DIR)"
-	@echo "Deploying plugin to $(PLUGINS_DIR)..."
 	@rm -rf "$(PLUGINS_DIR)/$(PLUGIN_NAME)"
 	@unzip -qo $(PLUGIN_ZIP) -d "$(PLUGINS_DIR)"
-	@echo "[OK] Plugin deployed — restart OpenDeck to reload"
+	@echo "[OK] Plugin deployed to $(PLUGINS_DIR)"
+	@echo "       Restart OpenDeck to reload the plugin"
+	@echo ""
 	@echo ""
 	@echo "Starting Expo..."
 	cd mobile && npx expo start --port 8082
