@@ -14,3 +14,4 @@ ios/
 .idea/
 .omo/
 *.sdPlugin.zip
+daemon/target/

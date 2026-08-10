@@ -1,4 +1,4 @@
-.PHONY: all plugin-build plugin-zip plugin-deps plugin-clean mobile-start dev kill help
+.PHONY: all plugin-build plugin-zip plugin-deps plugin-clean mobile-start dev kill daemon-build daemon-start help
 
 PLUGIN_DIR  := plugin/com.streamdeckapp.mobile.sdPlugin
 PLUGIN_NAME := com.streamdeckapp.mobile.sdPlugin
@@ -74,9 +74,21 @@ mobile-start:
 kill:
 	@kill $$(lsof -ti:58123) 2>/dev/null && echo "[OK] Killed old plugin on port 58123" || true
 
-# ─── Dev: rebuild plugin + deploy + start app ────────────────────────────────────
+# ─── Daemon: Virtual Stream Deck (Rust) ────────────────────────────────────────
 
-dev: kill plugin-zip
+daemon-build:
+	@echo "Building virtual deck daemon..."
+	cd daemon && cargo build --release
+	@echo "[OK] Daemon built: daemon/target/release/sd-virtual-deck"
+
+daemon-start: daemon-build
+	@echo "Starting virtual deck daemon..."
+	@sudo modprobe uhid 2>/dev/null || true
+	daemon/target/release/sd-virtual-deck
+
+# ─── Dev: rebuild plugin + daemon + deploy + start app ───────────────────────────
+
+dev: kill plugin-zip daemon-build
 	@echo ""
 	@echo "OpenDeck: $(OPENDECK_TYPE) → $(PLUGINS_DIR)"
 	@mkdir -p "$(PLUGINS_DIR)"
@@ -89,16 +101,13 @@ dev: kill plugin-zip
 	@echo "Starting Expo..."
 	cd mobile && npx expo start --port 8082
 
-# ─── Help ──────────────────────────────────────────────────────────────────────
-
 help:
 	@echo "StreamDeck Mobile — Makefile"
 	@echo ""
-	@echo "  make dev            Build + deploy + kill old plugin + start Expo"
+	@echo "  make daemon-start   Build + run virtual Stream Deck daemon (needs sudo)"
+	@echo "  make dev            Build plugin + deploy + kill old + start Expo"
 	@echo "  make kill           Kill lingering plugin on port 58123"
 	@echo "  make plugin-build   Build plugin (TypeScript -> JavaScript)"
-	@echo "  make plugin-deps    Copy production deps into plugin dir"
 	@echo "  make plugin-zip     Build + bundle deps + create .zip"
 	@echo "  make plugin-clean   Remove dist/, node_modules/, .zip"
-	@echo "  make mobile-start   Start Expo dev server"
 	@echo "  make                Build plugin + deps + zip"
