@@ -69,15 +69,11 @@ mobile-start:
 
 dev: plugin-zip
 	@echo ""
-	@if [ -d "$(PLUGINS_DIR)" ]; then \
-		echo "Deploying plugin to OpenDeck..."; \
-		rm -rf "$(PLUGINS_DIR)/$(PLUGIN_NAME)"; \
-		unzip -qo $(PLUGIN_ZIP) -d "$(PLUGINS_DIR)"; \
-		echo "[OK] Plugin deployed — restart OpenDeck to reload"; \
-	else \
-		echo "[WARN] OpenDeck plugins dir not found at $(PLUGINS_DIR)"; \
-		echo "       Install the zip manually and restart OpenDeck."; \
-	fi
+	@mkdir -p "$(PLUGINS_DIR)"
+	@echo "Deploying plugin to $(PLUGINS_DIR)..."
+	@rm -rf "$(PLUGINS_DIR)/$(PLUGIN_NAME)"
+	@unzip -qo $(PLUGIN_ZIP) -d "$(PLUGINS_DIR)"
+	@echo "[OK] Plugin deployed — restart OpenDeck to reload"
 	@echo ""
 	@echo "Starting Expo..."
 	cd mobile && npx expo start --port 8082
