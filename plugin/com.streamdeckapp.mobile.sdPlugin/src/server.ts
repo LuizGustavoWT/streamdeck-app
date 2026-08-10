@@ -193,6 +193,16 @@ export function startMobileServer(config: ServerConfig) {
 
   // ─── Start listening ───────────────────────────────────────────────────────
 
+  httpServer.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[StreamDeckMobile] Port ${PORT} in use — old plugin process still running?`);
+      console.error('[StreamDeckMobile] Kill it with: kill $(lsof -ti:' + PORT + ')');
+    } else {
+      console.error('[StreamDeckMobile] Server error:', err.message);
+    }
+    process.exit(1);
+  });
+
   httpServer.listen(PORT, '0.0.0.0', () => {
     const ips = getLocalIPs();
     console.log(`[StreamDeckMobile] Server listening on port ${PORT}`);

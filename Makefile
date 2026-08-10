@@ -1,4 +1,4 @@
-.PHONY: all plugin-build plugin-zip plugin-deps plugin-clean mobile-start dev help
+.PHONY: all plugin-build plugin-zip plugin-deps plugin-clean mobile-start dev kill help
 
 PLUGIN_DIR  := plugin/com.streamdeckapp.mobile.sdPlugin
 PLUGIN_NAME := com.streamdeckapp.mobile.sdPlugin
@@ -69,9 +69,14 @@ plugin-clean:
 mobile-start:
 	cd mobile && npx expo start --port 8082
 
+# ─── Kill lingering plugin processes ────────────────────────────────────────────
+
+kill:
+	@kill $$(lsof -ti:58123) 2>/dev/null && echo "[OK] Killed old plugin on port 58123" || true
+
 # ─── Dev: rebuild plugin + deploy + start app ────────────────────────────────────
 
-dev: plugin-zip
+dev: kill plugin-zip
 	@echo ""
 	@echo "OpenDeck: $(OPENDECK_TYPE) → $(PLUGINS_DIR)"
 	@mkdir -p "$(PLUGINS_DIR)"
@@ -89,7 +94,8 @@ dev: plugin-zip
 help:
 	@echo "StreamDeck Mobile — Makefile"
 	@echo ""
-	@echo "  make dev            Build plugin + deploy to OpenDeck + start Expo"
+	@echo "  make dev            Build + deploy + kill old plugin + start Expo"
+	@echo "  make kill           Kill lingering plugin on port 58123"
 	@echo "  make plugin-build   Build plugin (TypeScript -> JavaScript)"
 	@echo "  make plugin-deps    Copy production deps into plugin dir"
 	@echo "  make plugin-zip     Build + bundle deps + create .zip"
