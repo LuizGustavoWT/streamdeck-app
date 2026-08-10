@@ -1,58 +1,78 @@
 # StreamDeck Mobile
 
-**Control your Elgato Stream Deck from your Android phone.**
+**Turn your Android phone into a Stream Deck.**
 
-StreamDeck Mobile is a React Native app that integrates with [OpenDeck](https://github.com/nekename/OpenDeck) — the open-source desktop application for Stream Deck devices — to let you design, preview, and control your Stream Deck layouts right from your phone.
+StreamDeck Mobile is a React Native app + desktop daemon that integrates with [OpenDeck](https://github.com/nekename/OpenDeck) to give you a fully functional virtual Stream Deck — no hardware required (Linux). Also works as a companion configurator for physical Stream Decks on all platforms.
+
+## Platform Support
+
+| Feature | Linux | Windows | macOS |
+|---|---|---|---|
+| Mobile app (Expo/Android) | ✅ | ✅ | ✅ |
+| Bridge plugin (action config) | ✅ | ✅ | ✅ |
+| Virtual device daemon (uhid) | ✅ | ❌ | ❌ |
+| Physical Stream Deck | ✅ | ✅ | ✅ |
+
+> **Windows/macOS users**: The plugin and mobile app work fully as a Stream Deck companion. For virtual device emulation, use [Tacto](https://tacto.live/) or connect a physical Stream Deck.
 
 ## How It Works
 
 ```
-┌──────────────┐     HTTP/WebSocket     ┌─────────────────┐     OpenAction API     ┌──────────────┐
-│  Mobile App  │ ◄────────────────────► │  Bridge Plugin  │ ◄─────────────────────► │   OpenDeck   │
-│  (Android)   │                        │  (Node.js)      │                        │  (Desktop)   │
-└──────────────┘                        └─────────────────┘                        └──────┬───────┘
-                                                                                         │
-                                                                                  ┌──────▼───────┐
-                                                                                  │ Stream Deck  │
-                                                                                  │   Hardware   │
-                                                                                  └──────────────┘
+┌──────────────┐   WS:58124   ┌──────────────┐   uhid/HID   ┌──────────────┐
+│  Mobile App  │ ◄───────────► │   Daemon     │ ◄──────────► │   OpenDeck   │
+│  (Virtual    │   images +   │  (Rust)      │   virtual    │  (Desktop)   │
+│   Deck)      │    taps      │              │   MK.2 5x3   │              │
+└──────────────┘              └──────────────┘              └──────────────┘
+                                     │
+       ┌─────────────────────────────┤
+       │                             │
+┌──────▼──────┐              ┌──────▼──────┐   WS:58123
+│  Stream Deck │              │   Plugin    │ ◄──────► Mobile App
+│  (physical)  │              │  (Node.js)  │   action config
+└──────────────┘              └─────────────┘
 ```
 
-1. **OpenDeck** runs on your desktop and connects to your Stream Deck hardware.
-2. **The bridge plugin** (`plugin/`) loads into OpenDeck and starts an HTTP + WebSocket server on your local network.
-3. **The mobile app** connects to the plugin, letting you design button layouts, assign actions, and push them to the Stream Deck. It also mirrors the deck's state in real time.
+1. **Daemon** (`daemon/`) creates a virtual Stream Deck MK.2 via Linux uhid — OpenDeck detects it as real hardware.
+2. **Plugin** (`plugin/`) provides configurable actions (Custom Button, URL Opener, etc.) and live profile mirroring.
+3. **Mobile app** shows button images from the virtual/physical deck and sends taps back. Also configures action states and appearance.
 
 ## Features
 
-- **Visual Layout Designer** — Drag-style grid editor matching your Stream Deck dimensions (Mini, MK.2, XL, Neo)
-- **Action Library** — Custom Button, URL Opener, Hotkey, and Text Sender actions
-- **Live Preview** — Real-time mirror of what's on your Stream Deck with event logging
-- **Push to Deck** — Send your layout directly to OpenDeck with one tap
+- **Virtual Stream Deck (Linux)** — No hardware needed. The Rust daemon emulates a Stream Deck MK.2 via uhid. OpenDeck detects it as a real device.
+- **Physical Stream Deck (all OS)** — Use with a real Elgato Stream Deck for action configuration and live preview.
+- **Action Library** — Custom Button (dual-state toggle), URL Opener, Hotkey, Text Sender, Multi Button (2×1 / 2×2)
+- **Live Preview** — Real-time mirror of your Stream Deck buttons with event logging
+- **State Editor** — Configure per-state colors, titles, and fonts. Dual-state toggle support.
 - **Dark UI** — Designed to match OpenDeck's aesthetic
 
 ## Project Structure
 
 ```
 streamdeck-app/
-├── mobile/                          # React Native (Expo) app
-│   ├── App.tsx                      # Entry point with navigation
-│   ├── app.json                     # Expo config
-│   ├── eas.json                     # EAS Build config (cloud APK builds)
+├── daemon/                           # Virtual Stream Deck daemon (Rust, Linux-only)
+│   ├── Cargo.toml
 │   └── src/
-│       ├── screens/                 # ConnectionScreen, LayoutDesigner, etc.
-│       ├── components/              # StreamDeckGrid, StreamDeckButton, ActionCard
-│       ├── services/                # OpenDeckBridge (REST + WebSocket client)
-│       └── hooks/                   # useBridge, useLayout
-├── plugin/                          # OpenDeck plugin (Node.js / TypeScript)
+│       ├── main.rs                    # Entry point, HID poll loop
+│       ├── uhid.rs                    # uhid device emulation (VID 0x0FD9, PID 0x0080)
+│       └── bridge.rs                  # WebSocket server (port 58124) for mobile app
+├── mobile/                           # React Native (Expo) app
+│   ├── App.tsx                       # Entry point with navigation
+│   ├── app.json                      # Expo config
+│   ├── eas.json                      # EAS Build config (cloud APK builds)
+│   └── src/
+│       ├── screens/                  # Connection, LivePreview, VirtualDeck, ButtonEditor
+│       ├── components/               # StreamDeckGrid, StreamDeckButton
+│       └── services/                 # OpenDeckBridge (REST + WebSocket client)
+├── plugin/                           # OpenDeck plugin (Node.js / TypeScript)
 │   └── com.streamdeckapp.mobile.sdPlugin/
-│       ├── manifest.json            # OpenAction plugin manifest
-│       ├── src/index.ts             # Plugin entry — WebSocket to OpenDeck
-│       ├── src/server.ts            # HTTP + WS server for mobile app
-│       └── pi/                      # Property inspectors (HTML)
-├── shared/                          # Shared TypeScript types and constants
+│       ├── manifest.json             # OpenAction plugin manifest
+│       ├── src/index.ts              # Plugin entry — WebSocket to OpenDeck
+│       ├── src/server.ts             # HTTP + WS server (port 58123) for mobile app
+│       └── pi/                       # Property inspectors (HTML)
+├── shared/                           # Shared TypeScript types and constants
 │   └── protocol.ts
 └── .github/
-    └── workflows/build-apk.yml      # CI/CD — builds APK via EAS Build
+    └── workflows/build-apk.yml       # CI/CD — builds APK via EAS Build
 ```
 
 ## Getting Started
