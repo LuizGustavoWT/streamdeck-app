@@ -13,3 +13,4 @@ ios/
 .codegraph/
 .idea/
 .omo/
+*.sdPlugin.zip
