@@ -1,8 +1,9 @@
-.PHONY: all plugin-build plugin-zip plugin-deps plugin-clean mobile-start help
+.PHONY: all plugin-build plugin-zip plugin-deps plugin-clean mobile-start dev help
 
 PLUGIN_DIR  := plugin/com.streamdeckapp.mobile.sdPlugin
 PLUGIN_NAME := com.streamdeckapp.mobile.sdPlugin
 PLUGIN_ZIP  := $(PLUGIN_NAME).zip
+PLUGINS_DIR := $(HOME)/.local/share/opendeck/plugins
 
 all: plugin-build plugin-deps plugin-zip
 
@@ -64,11 +65,29 @@ plugin-clean:
 mobile-start:
 	cd mobile && npx expo start --port 8082
 
+# ─── Dev: rebuild plugin + deploy + start app ────────────────────────────────────
+
+dev: plugin-zip
+	@echo ""
+	@if [ -d "$(PLUGINS_DIR)" ]; then \
+		echo "Deploying plugin to OpenDeck..."; \
+		rm -rf "$(PLUGINS_DIR)/$(PLUGIN_NAME)"; \
+		unzip -qo $(PLUGIN_ZIP) -d "$(PLUGINS_DIR)"; \
+		echo "[OK] Plugin deployed — restart OpenDeck to reload"; \
+	else \
+		echo "[WARN] OpenDeck plugins dir not found at $(PLUGINS_DIR)"; \
+		echo "       Install the zip manually and restart OpenDeck."; \
+	fi
+	@echo ""
+	@echo "Starting Expo..."
+	cd mobile && npx expo start --port 8082
+
 # ─── Help ──────────────────────────────────────────────────────────────────────
 
 help:
 	@echo "StreamDeck Mobile — Makefile"
 	@echo ""
+	@echo "  make dev            Build plugin + deploy to OpenDeck + start Expo"
 	@echo "  make plugin-build   Build plugin (TypeScript -> JavaScript)"
 	@echo "  make plugin-deps    Copy production deps into plugin dir"
 	@echo "  make plugin-zip     Build + bundle deps + create .zip"
