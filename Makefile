@@ -78,13 +78,14 @@ kill:
 
 daemon-build:
 	@echo "Building virtual deck daemon..."
-	cd daemon && cargo build --release
+	@PATH="$$HOME/.cargo/bin:$$PATH" cargo build --release --manifest-path daemon/Cargo.toml
 	@echo "[OK] Daemon built: daemon/target/release/sd-virtual-deck"
 
 daemon-start: daemon-build
+	@echo "Loading uhid kernel module..."
+	@sudo modprobe uhid 2>/dev/null || echo "[WARN] Run: sudo modprobe uhid"
 	@echo "Starting virtual deck daemon..."
-	@sudo modprobe uhid 2>/dev/null || true
-	daemon/target/release/sd-virtual-deck
+	./daemon/target/release/sd-virtual-deck
 
 # ─── Dev: rebuild plugin + daemon + deploy + start app ───────────────────────────
 
