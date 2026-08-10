@@ -60,10 +60,19 @@ streamdeck-app/
 ### Prerequisites
 
 - **Desktop**: [OpenDeck](https://github.com/nekename/OpenDeck/releases) installed
+- **Desktop**: Node.js 20+ installed system-wide (required for Node.js plugins)
 - **Mobile**: Android device or emulator
 - **Development**: Node.js 22+, npm 11+
 
 ### 1. Install the Plugin
+
+**Prerequisite: Node.js 20+** must be installed on the desktop running OpenDeck.
+
+```bash
+# Install Node.js 22 LTS (if not already installed)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+```
 
 Copy the plugin into OpenDeck's plugins directory:
 

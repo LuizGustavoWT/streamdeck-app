@@ -46,6 +46,10 @@ plugin-zip: plugin-build plugin-deps
 	@echo "  # or on Windows:"
 	@echo "  unzip $(PLUGIN_ZIP) -d %APPDATA%/opendeck/plugins/"
 	@echo ""
+	@echo "Requirements: Node.js 20+ must be installed system-wide."
+	@echo "  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -"
+	@echo "  sudo apt install -y nodejs"
+	@echo ""
 	@echo "Then restart OpenDeck."
 
 # ─── Plugin: Clean ──────────────────────────────────────────────────────────────
