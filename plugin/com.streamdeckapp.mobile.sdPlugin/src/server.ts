@@ -14,6 +14,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket as WsClient } from 'ws';
 import { EventEmitter } from 'node:events';
+import { networkInterfaces } from 'node:os';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -136,9 +137,16 @@ export function startMobileServer(config: ServerConfig) {
 
     try {
       switch (url.pathname) {
-        case '/status': {
+        case '/ping':
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(bridge.getStatus()));
+          res.end(JSON.stringify({ pong: true, timestamp: Date.now() }));
+          break;
+
+        case '/status': {
+          const status = bridge.getStatus();
+          const ips = getLocalIPs();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ...status, serverIPs: ips, serverPort: PORT }));
           break;
         }
 
@@ -273,9 +281,27 @@ export function startMobileServer(config: ServerConfig) {
   // ─── Start listening ─────────────────────────────────────────────────────
 
   httpServer.listen(PORT, '0.0.0.0', () => {
+    const ips = getLocalIPs();
     console.log(`[StreamDeckMobile] HTTP+WS server listening on port ${PORT}`);
-    console.log(`[StreamDeckMobile] Mobile app can connect at http://<host-ip>:${PORT}`);
+    console.log(`[StreamDeckMobile] Reachable at:`);
+    ips.forEach(ip => console.log(`[StreamDeckMobile]   http://${ip}:${PORT}`));
+    console.log(`[StreamDeckMobile]   http://localhost:${PORT}`);
+    console.log(`[StreamDeckMobile] Test from phone browser: http://<desktop-ip>:${PORT}/ping`);
   });
 
   return { emitter, httpServer, wss };
+}
+
+function getLocalIPs(): string[] {
+  const ips: string[] = [];
+  const interfaces = networkInterfaces();
+  for (const [, addrs] of Object.entries(interfaces)) {
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        ips.push(addr.address);
+      }
+    }
+  }
+  return ips;
 }

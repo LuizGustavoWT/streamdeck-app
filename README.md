@@ -123,6 +123,39 @@ Scan the QR code with Expo Go (Android) or press `a` for Android emulator.
 3. Tap **Connect**.
 4. Start designing your layout!
 
+### Troubleshooting Connection
+
+**Check if the plugin server is running:**
+
+Open your phone's browser and navigate to `http://<desktop-ip>:58123/ping`. You should see `{"pong":true}`. If not, the plugin server isn't running.
+
+**Find your desktop IP:**
+
+```bash
+ip addr show | grep 'inet ' | grep -v 127.0.0.1
+# or
+hostname -I
+```
+
+**Check OpenDeck logs:**
+
+```bash
+# Linux
+cat ~/.local/share/opendeck/logs/*.log | grep StreamDeckMobile
+
+# You should see lines like:
+# [StreamDeckMobile] Plugin started (PID 12345)
+# [StreamDeckMobile] HTTP+WS server listening on port 58123
+# [StreamDeckMobile] Reachable at: http://192.168.1.100:58123
+```
+
+**Common issues:**
+
+- **Wrong IP**: Make sure you're using your desktop's LAN IP (usually `192.168.x.x` or `10.x.x.x`), not `127.0.0.1`.
+- **Firewall**: Allow port `58123` through your firewall: `sudo ufw allow 58123/tcp`.
+- **Different networks**: Phone and desktop must be on the same Wi-Fi/LAN.
+- **Node.js not found by OpenDeck**: Ensure `node --version` works from any terminal. If using nvm, run `sudo ln -s "$(which node)" /usr/local/bin/node`.
+
 ## Building the APK
 
 This project uses [EAS Build](https://docs.expo.dev/build/introduction/) for cloud APK builds.

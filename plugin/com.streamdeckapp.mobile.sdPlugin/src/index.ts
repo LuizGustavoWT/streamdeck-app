@@ -113,10 +113,12 @@ function parseArgs(argv: string[]): Partial<CliArgs> {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 const cliArgs = parseArgs(process.argv);
+console.log(`[StreamDeckMobile] Plugin started (PID ${process.pid})`);
+console.log(`[StreamDeckMobile] Args: port=${cliArgs.port}, uuid=${cliArgs.pluginUUID}, event=${cliArgs.registerEvent}`);
 
 if (!cliArgs.port || !cliArgs.pluginUUID || !cliArgs.registerEvent) {
   // Running standalone (dev mode without OpenDeck) — start mobile server only
-  console.log('[StreamDeckMobile] Running in standalone mode (no OpenDeck args)');
+  console.log('[StreamDeckMobile] Mode: standalone (no OpenDeck args) — only mobile server');
   const { emitter } = startMobileServer({
     opendeckWs: null,
     pluginUUID: 'dev-mode',
