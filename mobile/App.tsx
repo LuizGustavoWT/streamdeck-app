@@ -5,11 +5,13 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ConnectionScreen } from './src/screens/ConnectionScreen';
 import { ButtonEditorScreen } from './src/screens/ButtonEditorScreen';
 import { LivePreviewScreen } from './src/screens/LivePreviewScreen';
+import { VirtualDeckScreen } from './src/screens/VirtualDeckScreen';
 
 export type RootStackParamList = {
   Connection: undefined;
   ButtonEditor: { column: number; row: number; context: string };
   LivePreview: undefined;
+  VirtualDeck: { host: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -50,6 +52,11 @@ export default function App() {
           name="LivePreview"
           component={LivePreviewScreen}
           options={{ title: 'Stream Deck' }}
+        />
+        <Stack.Screen
+          name="VirtualDeck"
+          component={VirtualDeckScreen}
+          options={{ title: 'Virtual Stream Deck' }}
         />
         <Stack.Screen
           name="ButtonEditor"

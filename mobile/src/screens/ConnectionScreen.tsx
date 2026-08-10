@@ -99,6 +99,13 @@ export function ConnectionScreen({ navigation }: Props) {
         )}
       </View>
 
+      <TouchableOpacity
+        style={styles.virtualButton}
+        onPress={() => navigation.navigate('VirtualDeck', { host })}
+      >
+        <Text style={styles.buttonText}>🎛️ Open Virtual Deck</Text>
+      </TouchableOpacity>
+
       {status && (
         <View style={styles.statusCard}>
           <Text style={styles.statusTitle}>Device Status</Text>
@@ -190,6 +197,15 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
     marginTop: 20,
+  },
+  virtualButton: {
+    backgroundColor: '#0f3460',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#533483',
   },
   buttonDisabled: {
     opacity: 0.6,
