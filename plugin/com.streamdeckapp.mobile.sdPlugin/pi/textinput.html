@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Text Sender Settings</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      padding: 12px;
+      font-size: 13px;
+    }
+    .field { margin-bottom: 10px; }
+    label { display: block; margin-bottom: 4px; color: #a0a0b0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    textarea { width: 100%; padding: 6px 8px; background: #16213e; border: 1px solid #0f3460; border-radius: 4px; color: #e0e0e0; font-size: 13px; resize: vertical; min-height: 60px; font-family: inherit; }
+    textarea:focus { outline: none; border-color: #533483; }
+  </style>
+</head>
+<body>
+  <div class="field">
+    <label>Text to Type</label>
+    <textarea id="text" placeholder="Hello, world!"></textarea>
+  </div>
+  <script>
+    function connectOpenActionSocket(port, propertyInspectorUUID, registerEvent, info) {
+      const ws = new WebSocket('ws://localhost:' + port);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ event: registerEvent, uuid: propertyInspectorUUID }));
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.event === 'didReceiveSettings') {
+          document.getElementById('text').value = msg.payload?.settings?.text || '';
+        }
+      };
+
+      function saveSettings() {
+        ws.send(JSON.stringify({
+          event: 'setSettings',
+          context: propertyInspectorUUID,
+          payload: { text: document.getElementById('text').value },
+        }));
+      }
+
+      document.getElementById('text').addEventListener('input', saveSettings);
+    }
+
+    const connectElgatoStreamDeckSocket = connectOpenActionSocket;
+  </script>
+</body>
+</html>

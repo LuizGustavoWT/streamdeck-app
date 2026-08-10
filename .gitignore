@@ -1,0 +1,13 @@
+node_modules/
+.expo/
+dist/
+*.apk
+*.aab
+*.jks
+*.keystore
+.env
+.env.local
+android/
+ios/
+.codegraph/
+.idea/

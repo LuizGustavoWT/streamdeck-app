@@ -1,0 +1,124 @@
+{
+  "Name": "StreamDeck Mobile",
+  "Author": "streamdeck-app",
+  "Version": "1.0.0",
+  "Icon": "assets/plugin-icon",
+  "Category": "StreamDeck Mobile",
+  "CategoryIcon": "assets/category-icon",
+  "PropertyInspectorPath": null,
+  "HasSettingsInterface": false,
+  "OS": [
+    { "Platform": "windows", "Version": "10" },
+    { "Platform": "mac", "Version": "12" },
+    { "Platform": "linux", "Version": null }
+  ],
+  "CodePath": "dist/index.js",
+  "CodePathWin": "dist/index.js",
+  "CodePathMac": "dist/index.js",
+  "CodePathLin": "dist/index.js",
+  "CodePaths": {
+    "x86_64-pc-windows-msvc": "dist/index.js",
+    "x86_64-apple-darwin": "dist/index.js",
+    "aarch64-apple-darwin": "dist/index.js",
+    "x86_64-unknown-linux-gnu": "dist/index.js",
+    "aarch64-unknown-linux-gnu": "dist/index.js"
+  },
+  "Actions": [
+    {
+      "Name": "Custom Button",
+      "UUID": "com.streamdeckapp.mobile.custombutton",
+      "Tooltip": "A customizable button controlled from the mobile app",
+      "Icon": "assets/custom-action-icon",
+      "DisableAutomaticStates": false,
+      "VisibleInActionsList": true,
+      "SupportedInMultiActions": true,
+      "PropertyInspectorPath": "pi/custombutton.html",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "actionDefaultImage",
+          "Name": "Default",
+          "Title": "",
+          "ShowTitle": true,
+          "TitleColor": "#FFFFFF",
+          "TitleAlignment": "middle",
+          "FontStyle": "Regular",
+          "FontSize": "14",
+          "FontUnderline": false
+        }
+      ]
+    },
+    {
+      "Name": "URL Opener",
+      "UUID": "com.streamdeckapp.mobile.urlopener",
+      "Tooltip": "Opens a URL configured from the mobile app",
+      "Icon": "assets/url-action-icon",
+      "DisableAutomaticStates": false,
+      "VisibleInActionsList": true,
+      "SupportedInMultiActions": true,
+      "PropertyInspectorPath": "pi/urlopener.html",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "actionDefaultImage",
+          "Name": "Default",
+          "Title": "",
+          "ShowTitle": true,
+          "TitleColor": "#FFFFFF",
+          "TitleAlignment": "middle",
+          "FontStyle": "Regular",
+          "FontSize": "14",
+          "FontUnderline": false
+        }
+      ]
+    },
+    {
+      "Name": "Hotkey",
+      "UUID": "com.streamdeckapp.mobile.hotkey",
+      "Tooltip": "Sends a hotkey combination configured from the mobile app",
+      "Icon": "assets/hotkey-action-icon",
+      "DisableAutomaticStates": false,
+      "VisibleInActionsList": true,
+      "SupportedInMultiActions": true,
+      "PropertyInspectorPath": "pi/hotkey.html",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "actionDefaultImage",
+          "Name": "Default",
+          "Title": "",
+          "ShowTitle": true,
+          "TitleColor": "#FFFFFF",
+          "TitleAlignment": "middle",
+          "FontStyle": "Regular",
+          "FontSize": "14",
+          "FontUnderline": false
+        }
+      ]
+    },
+    {
+      "Name": "Text Sender",
+      "UUID": "com.streamdeckapp.mobile.textinput",
+      "Tooltip": "Types a text string configured from the mobile app",
+      "Icon": "assets/text-action-icon",
+      "DisableAutomaticStates": false,
+      "VisibleInActionsList": true,
+      "SupportedInMultiActions": true,
+      "PropertyInspectorPath": "pi/textinput.html",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "actionDefaultImage",
+          "Name": "Default",
+          "Title": "",
+          "ShowTitle": true,
+          "TitleColor": "#FFFFFF",
+          "TitleAlignment": "middle",
+          "FontStyle": "Regular",
+          "FontSize": "14",
+          "FontUnderline": false
+        }
+      ]
+    }
+  ]
+}

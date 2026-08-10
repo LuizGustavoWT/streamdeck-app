@@ -1,0 +1,17 @@
+{
+  "name": "streamdeck-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "React Native app + OpenDeck plugin for Stream Deck mobile control",
+  "workspaces": [
+    "shared",
+    "plugin/com.streamdeckapp.mobile.sdPlugin",
+    "mobile"
+  ],
+  "scripts": {
+    "mobile:start": "cd mobile && npx expo start",
+    "mobile:android": "cd mobile && npx expo run:android",
+    "plugin:dev": "cd plugin/com.streamdeckapp.mobile.sdPlugin && node index.js",
+    "lint": "cd mobile && npx eslint ."
+  }
+}

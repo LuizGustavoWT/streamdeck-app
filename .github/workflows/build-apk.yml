@@ -1,0 +1,78 @@
+# Build StreamDeck Mobile APK via Expo EAS Build
+# 
+# Required secrets (set in GitHub → Settings → Secrets and variables → Actions):
+#   EXPO_TOKEN — Expo access token (generate at https://expo.dev/settings/access-tokens)
+#
+# This workflow triggers on:
+#   - Push to main branch
+#   - Manual trigger (workflow_dispatch)
+#   - Pull requests to main (builds preview APK only)
+
+name: Build APK (EAS)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'shared/**'
+      - '.github/workflows/build-apk.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'shared/**'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        required: true
+        type: choice
+        default: 'preview'
+        options:
+          - preview
+          - production
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./mobile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build APK (preview)
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.profile == 'preview') }}
+        run: eas build --platform android --profile preview --non-interactive --no-wait
+
+      - name: Build APK (production)
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.profile == 'production') }}
+        run: eas build --platform android --profile production --non-interactive --no-wait
+
+      - name: Build summary
+        run: |
+          echo "### 📱 APK Build Triggered" >> $GITHUB_STEP_SUMMARY
+          echo "Check your [Expo dashboard](https://expo.dev/accounts/\${{ github.actor }}/projects/streamdeck-mobile/builds) for the build status and download link." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Profile:** ${{ inputs.profile || 'preview' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
