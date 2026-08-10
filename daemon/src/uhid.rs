@@ -100,7 +100,7 @@ impl VirtualDeck {
             name, phys, uniq,
             rd_data: REPORT_DESCRIPTOR.as_ptr() as u64,
             rd_size: REPORT_DESCRIPTOR.len() as u16,
-            bus: 0x06,
+            bus: 5,    // BUS_VIRTUAL
             vendor: STREAMDECK_VID,
             product: STREAMDECK_PID,
             version: 0,
