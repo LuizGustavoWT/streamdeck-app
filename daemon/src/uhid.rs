@@ -115,6 +115,8 @@ impl VirtualDeck {
         let bytes = unsafe {
             slice::from_raw_parts(&event as *const UhidEvent as *const u8, size_of::<UhidEvent>())
         };
+        eprintln!("Rust sizeof(UhidEvent)={} C expects=4380", size_of::<UhidEvent>());
+        eprintln!("Rust sizeof(UhidCreate2Req)={} C expects=4372", size_of::<UhidCreate2Req>());
         file.write_all(bytes).map_err(|e| format!("UHID_CREATE2 write failed: {e}"))?;
 
         println!("[VirtualDeck] Device created (VID:{:04x} PID:{:04x})", STREAMDECK_VID, STREAMDECK_PID);
