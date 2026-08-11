@@ -99,13 +99,6 @@ export function ConnectionScreen({ navigation }: Props) {
         )}
       </View>
 
-      <TouchableOpacity
-        style={styles.virtualButton}
-        onPress={() => navigation.navigate('VirtualDeck', { host })}
-      >
-        <Text style={styles.buttonText}>🎛️ Open Virtual Deck</Text>
-      </TouchableOpacity>
-
       {status && (
         <View style={styles.statusCard}>
           <Text style={styles.statusTitle}>Device Status</Text>
@@ -118,7 +111,7 @@ export function ConnectionScreen({ navigation }: Props) {
           <Text style={styles.statusText}>
             Devices: {status.devices?.length || 0} connected
           </Text>
-          {status.devices?.map((device) => (
+          {status.devices?.map((device: { id: string; name: string; size: { columns: number; rows: number } }) => (
             <View key={device.id} style={styles.deviceRow}>
               <Text style={styles.deviceText}>
                 🎛️ {device.name} ({device.size.columns}x{device.size.rows})

@@ -1,10 +1,9 @@
-.PHONY: all plugin-build plugin-zip plugin-deps plugin-clean mobile-start dev kill daemon-build daemon-start help
+.PHONY: all plugin-build plugin-zip plugin-deps plugin-clean mobile-start dev kill help
 
 PLUGIN_DIR  := plugin/com.streamdeckapp.mobile.sdPlugin
 PLUGIN_NAME := com.streamdeckapp.mobile.sdPlugin
 PLUGIN_ZIP  := $(PLUGIN_NAME).zip
 
-# Auto-detect OpenDeck plugins directory (Flatpak vs native)
 OPENDECK_CONFIG := $(shell find $(HOME)/.var/app/me.amankhanna.opendeck/config/opendeck -maxdepth 0 -type d 2>/dev/null)
 ifneq ($(OPENDECK_CONFIG),)
   PLUGINS_DIR := $(HOME)/.var/app/me.amankhanna.opendeck/config/opendeck/plugins
@@ -16,15 +15,11 @@ endif
 
 all: plugin-build plugin-deps plugin-zip
 
-# ─── Plugin: Build ──────────────────────────────────────────────────────────────
+# ─── Plugin ────────────────────────────────────────────────────────────────────
 
 plugin-build:
 	cd $(PLUGIN_DIR) && npm install --silent && npx tsc
 	@echo "[OK] Plugin built to $(PLUGIN_DIR)/dist/"
-
-# ─── Plugin: Production dependencies ────────────────────────────────────────────
-# npm workspaces hoists deps to root — copy only runtime deps (ws) into plugin dir.
-# Dev deps (typescript, tsx, @types) are not needed at runtime.
 
 plugin-deps:
 	@rm -rf $(PLUGIN_DIR)/node_modules
@@ -37,10 +32,6 @@ plugin-deps:
 		exit 1; \
 	fi
 
-# ─── Plugin: Zip ────────────────────────────────────────────────────────────────
-# Zips from plugin/ so the .sdPlugin folder is preserved inside the archive.
-# OpenDeck expects: <name>.sdPlugin/manifest.json at the root of the extracted folder.
-
 plugin-zip: plugin-build plugin-deps
 	cd plugin && zip -r ../$(PLUGIN_ZIP) $(PLUGIN_NAME) \
 		-x "$(PLUGIN_NAME)/src/*" \
@@ -49,14 +40,7 @@ plugin-zip: plugin-build plugin-deps
 		-x "$(PLUGIN_NAME)/dist/*.map" \
 		-x "$(PLUGIN_NAME)/node_modules/.package-lock.json" \
 		-x "*.tsbuildinfo"
-	@echo "[OK] Plugin archive: $(PLUGIN_ZIP)"
-	@echo ""
-	@echo "Install manually:"
-	@echo "  unzip $(PLUGIN_ZIP) -d $(PLUGINS_DIR)"
-	@echo ""
-	@echo "or run: make dev"
-
-# ─── Plugin: Clean ──────────────────────────────────────────────────────────────
+	@echo "[OK] $(PLUGIN_ZIP)"
 
 plugin-clean:
 	rm -rf $(PLUGIN_DIR)/dist
@@ -64,70 +48,38 @@ plugin-clean:
 	rm -f $(PLUGIN_ZIP)
 	@echo "[OK] Cleaned"
 
-# ─── Mobile ────────────────────────────────────────────────────────────────────
-
-mobile-start:
-	cd mobile && npx expo start --port 8082
-
-# ─── Kill lingering plugin processes ────────────────────────────────────────────
+# ─── Kill ──────────────────────────────────────────────────────────────────────
 
 kill:
-	@kill $$(lsof -ti:58123) 2>/dev/null && echo "[OK] Killed old plugin on port 58123" || true
+	@kill $$(lsof -ti:58123) 2>/dev/null && echo "[OK] Killed old plugin on 58123" || true
 
-# ─── Daemon: Virtual Stream Deck (Rust) ────────────────────────────────────────
+# ─── Dev ───────────────────────────────────────────────────────────────────────
 
-daemon-build:
-	@echo "Building virtual deck daemon..."
-	@PATH="$$HOME/.cargo/bin:$$PATH" cargo build --release --manifest-path daemon/Cargo.toml
-	@echo "[OK] Daemon built: daemon/target/release/sd-virtual-deck"
-
-daemon-start: daemon-build
-	@echo ""
-	@if [ "$$(id -u)" = "0" ]; then \
-		echo "ERROR: Do not run 'sudo make daemon-start'."; \
-		echo "       Run 'make daemon-build' as your user, then:"; \
-		echo "       sudo ./daemon/target/release/sd-virtual-deck"; \
-		exit 1; \
-	fi
-	@if [ ! -c /dev/uhid ]; then \
-		echo "Loading uhid kernel module..."; \
-		sudo modprobe uhid; \
-	fi
-	@if [ -r /dev/uhid ] && [ -w /dev/uhid ]; then \
-		echo "Starting virtual deck daemon..."; \
-		./daemon/target/release/sd-virtual-deck; \
-	else \
-		echo ""; \
-		echo "No permission to access /dev/uhid."; \
-		echo "  sudo ./daemon/target/release/sd-virtual-deck"; \
-		echo ""; \
-		echo "Or fix permanently:"; \
-		echo "  sudo chmod 666 /dev/uhid"; \
-		exit 1; \
-	fi
-
-# ─── Dev: rebuild plugin + daemon + deploy + start app ───────────────────────────
-
-dev: kill plugin-zip daemon-build
+dev: kill plugin-zip
 	@echo ""
 	@echo "OpenDeck: $(OPENDECK_TYPE) → $(PLUGINS_DIR)"
 	@mkdir -p "$(PLUGINS_DIR)"
 	@rm -rf "$(PLUGINS_DIR)/$(PLUGIN_NAME)"
 	@unzip -qo $(PLUGIN_ZIP) -d "$(PLUGINS_DIR)"
-	@echo "[OK] Plugin deployed to $(PLUGINS_DIR)"
-	@echo "       Restart OpenDeck to reload the plugin"
-	@echo ""
+	@echo "[OK] Plugin deployed — restart OpenDeck/Tacto to reload"
 	@echo ""
 	@echo "Starting Expo..."
 	cd mobile && npx expo start --port 8082
 
+# ─── Mobile ────────────────────────────────────────────────────────────────────
+
+mobile-start:
+	cd mobile && npx expo start --port 8082
+
+# ─── Help ──────────────────────────────────────────────────────────────────────
+
 help:
 	@echo "StreamDeck Mobile — Makefile"
 	@echo ""
-	@echo "  make daemon-start   Build + run virtual Stream Deck daemon (needs sudo)"
-	@echo "  make dev            Build plugin + deploy + kill old + start Expo"
+	@echo "  make dev            Build plugin + deploy + start Expo"
 	@echo "  make kill           Kill lingering plugin on port 58123"
 	@echo "  make plugin-build   Build plugin (TypeScript -> JavaScript)"
 	@echo "  make plugin-zip     Build + bundle deps + create .zip"
 	@echo "  make plugin-clean   Remove dist/, node_modules/, .zip"
+	@echo "  make mobile-start   Start Expo dev server"
 	@echo "  make                Build plugin + deps + zip"
