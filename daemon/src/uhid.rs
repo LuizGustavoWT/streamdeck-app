@@ -1,20 +1,14 @@
-use std::os::unix::io::AsRawFd;
 use std::fs::{File, OpenOptions};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::mem::{ManuallyDrop, size_of};
 use std::slice;
 
-fn iow(ty: u8, nr: u8, size: u32) -> u32 {
-    (1 << 30) | ((ty as u32) << 8) | (nr as u32) | (size << 16)
-}
-
-const UHID_TYPE: u8 = b'H';
-const UHID_CREATE: u8 = 0x01;
-const UHID_DESTROY: u8 = 0x03;
-const UHID_INPUT_EV: u8 = 0x0a;
-const UHID_OUTPUT_EV: u32 = 0x0b;
-const UHID_START_EV: u32 = 0x05;
-const UHID_STOP_EV: u32 = 0x06;
+const UHID_CREATE2: u32 = 12;
+const UHID_DESTROY: u32 = 1;
+const UHID_START: u32 = 2;
+const UHID_STOP: u32 = 3;
+const UHID_OUTPUT: u32 = 6;
+const UHID_INPUT2: u32 = 13;
 
 const STREAMDECK_VID: u32 = 0x0fd9;
 const STREAMDECK_PID: u32 = 0x0080;
@@ -32,44 +26,54 @@ const REPORT_DESCRIPTOR: &[u8] = &[
     0xc0,
 ];
 
+const HID_MAX_DESCRIPTOR_SIZE: usize = 4096;
+const UHID_DATA_MAX: usize = 4096;
+
 #[repr(C, packed)]
-struct UhidCreateReq {
+struct UhidCreate2Req {
     name: [u8; 128],
     phys: [u8; 64],
     uniq: [u8; 64],
-    rd_data: u64,
     rd_size: u16,
     bus: u16,
     vendor: u32,
     product: u32,
     version: u32,
     country: u32,
+    rd_data: [u8; HID_MAX_DESCRIPTOR_SIZE],
 }
 
 #[repr(C, packed)]
-struct UhidInputReq {
-    data: [u8; 32],
+struct UhidInput2Req {
     size: u16,
+    data: [u8; UHID_DATA_MAX],
 }
 
 #[repr(C, packed)]
 struct UhidOutputReq {
-    data: [u8; 1024],
+    data: [u8; UHID_DATA_MAX],
     size: u16,
     rtype: u8,
+    _pad: [u8; 5],
+}
+
+#[repr(C, packed)]
+struct UhidStartReq {
+    dev_flags: u64,
 }
 
 #[repr(C)]
-union UhidEventData {
-    create: ManuallyDrop<UhidCreateReq>,
-    input: ManuallyDrop<UhidInputReq>,
+union UhidEventPayload {
+    create2: ManuallyDrop<UhidCreate2Req>,
+    input2: ManuallyDrop<UhidInput2Req>,
     output: ManuallyDrop<UhidOutputReq>,
+    start: ManuallyDrop<UhidStartReq>,
 }
 
 #[repr(C)]
 struct UhidEvent {
     type_: u32,
-    u: UhidEventData,
+    u: UhidEventPayload,
 }
 
 pub struct VirtualDeck {
@@ -80,40 +84,38 @@ pub struct VirtualDeck {
 
 impl VirtualDeck {
     pub fn create() -> Result<Self, String> {
-        let file = OpenOptions::new()
+        let mut file = OpenOptions::new()
             .read(true).write(true)
             .open("/dev/uhid")
-            .map_err(|e| format!("Cannot open /dev/uhid: {e}. Try: sudo modprobe uhid && sudo chmod 666 /dev/uhid"))?;
+            .map_err(|e| format!("Cannot open /dev/uhid: {e}"))?;
 
-        let fd = file.as_raw_fd();
-
-        let mut name = [0u8; 128];
-        name[..33].copy_from_slice(b"StreamDeck Mobile (Virtual MK.2)\0");
-
-        let mut phys = [0u8; 64];
-        phys[..19].copy_from_slice(b"virtual-streamdeck\0");
-
-        let mut uniq = [0u8; 64];
-        uniq[..13].copy_from_slice(b"SD-MOBILE-01\0");
-
-        let create_req = UhidCreateReq {
-            name, phys, uniq,
-            rd_data: REPORT_DESCRIPTOR.as_ptr() as u64,
+        // Build UHID_CREATE2 event
+        let mut req = UhidCreate2Req {
+            name: [0u8; 128],
+            phys: [0u8; 64],
+            uniq: [0u8; 64],
             rd_size: REPORT_DESCRIPTOR.len() as u16,
-            bus: 5,    // BUS_VIRTUAL
+            bus: 5, // BUS_VIRTUAL
             vendor: STREAMDECK_VID,
             product: STREAMDECK_PID,
             version: 0,
             country: 0,
+            rd_data: [0u8; HID_MAX_DESCRIPTOR_SIZE],
+        };
+        req.name[..33].copy_from_slice(b"StreamDeck Mobile (Virtual MK.2)\0");
+        req.phys[..19].copy_from_slice(b"virtual-streamdeck\0");
+        req.uniq[..13].copy_from_slice(b"SD-MOBILE-01\0");
+        req.rd_data[..REPORT_DESCRIPTOR.len()].copy_from_slice(REPORT_DESCRIPTOR);
+
+        let event = UhidEvent {
+            type_: UHID_CREATE2,
+            u: UhidEventPayload { create2: ManuallyDrop::new(req) },
         };
 
-        let code = iow(UHID_TYPE, UHID_CREATE, size_of::<UhidCreateReq>() as u32);
-        eprintln!("ioctl=0x{code:08x} type={} nr={} size={}", UHID_TYPE, UHID_CREATE, size_of::<UhidCreateReq>());
-        let ret = unsafe { libc::ioctl(fd, code as _, &create_req) };
-        if ret != 0 {
-            let err = unsafe { *libc::__errno_location() };
-            return Err(format!("UHID_CREATE ioctl failed: ret={ret}, errno={err}"));
-        }
+        let bytes = unsafe {
+            slice::from_raw_parts(&event as *const UhidEvent as *const u8, size_of::<UhidEvent>())
+        };
+        file.write_all(bytes).map_err(|e| format!("UHID_CREATE2 write failed: {e}"))?;
 
         println!("[VirtualDeck] Device created (VID:{:04x} PID:{:04x})", STREAMDECK_VID, STREAMDECK_PID);
 
@@ -125,7 +127,9 @@ impl VirtualDeck {
         let mut event: UhidEvent = unsafe { std::mem::zeroed() };
         let size = size_of::<UhidEvent>();
 
-        match self.file.read(unsafe { slice::from_raw_parts_mut(&mut event as *mut UhidEvent as *mut u8, size) }) {
+        match self.file.read(unsafe {
+            slice::from_raw_parts_mut(&mut event as *mut UhidEvent as *mut u8, size)
+        }) {
             Ok(n) if n == size => {}
             Ok(_) => return Ok(Vec::new()),
             Err(e) => return Err(format!("read error: {e}")),
@@ -134,12 +138,12 @@ impl VirtualDeck {
         let mut updated = Vec::new();
 
         match event.type_ {
-            UHID_START_EV => println!("[VirtualDeck] UHID_START — OpenDeck connected"),
-            UHID_STOP_EV => {
-                println!("[VirtualDeck] UHID_STOP — OpenDeck disconnected");
+            UHID_START => println!("[VirtualDeck] START — OpenDeck connected"),
+            UHID_STOP => {
+                println!("[VirtualDeck] STOP — OpenDeck disconnected");
                 for img in &mut self.images { *img = Vec::new(); }
             }
-            UHID_OUTPUT_EV => unsafe {
+            UHID_OUTPUT => unsafe {
                 let out = &event.u.output;
                 let data = &out.data[..out.size as usize];
                 if out.rtype == 2 && data.len() >= 4 {
@@ -163,16 +167,21 @@ impl VirtualDeck {
     }
 
     fn send_input(&mut self) -> Result<(), String> {
-        let fd = self.file.as_raw_fd();
-        let mut data = [0u8; 32];
-        data[0] = 0x01;
+        let mut req = UhidInput2Req { size: 5, data: [0u8; UHID_DATA_MAX] };
+        req.data[0] = 0x01;
         for (i, &pressed) in self.buttons.iter().enumerate() {
-            if pressed { data[1 + i / 8] |= 1 << (i % 8); }
+            if pressed { req.data[1 + i / 8] |= 1 << (i % 8); }
         }
-        let req = UhidInputReq { data, size: 5 };
-        let code = iow(UHID_TYPE, UHID_INPUT_EV, size_of::<UhidInputReq>() as u32);
-        let ret = unsafe { libc::ioctl(fd, code as _, &req) };
-        if ret != 0 { return Err(format!("UHID_INPUT failed: {ret}")); }
+
+        let event = UhidEvent {
+            type_: UHID_INPUT2,
+            u: UhidEventPayload { input2: ManuallyDrop::new(req) },
+        };
+
+        let bytes = unsafe {
+            slice::from_raw_parts(&event as *const UhidEvent as *const u8, size_of::<UhidEvent>())
+        };
+        self.file.write_all(bytes).map_err(|e| format!("UHID_INPUT2 write failed: {e}"))?;
         Ok(())
     }
 
@@ -189,8 +198,14 @@ impl VirtualDeck {
 
 impl Drop for VirtualDeck {
     fn drop(&mut self) {
-        let code = iow(UHID_TYPE, UHID_DESTROY, size_of::<u32>() as u32);
-        unsafe { libc::ioctl(self.file.as_raw_fd(), code as _, &0u32); }
+        let event = UhidEvent {
+            type_: UHID_DESTROY,
+            u: unsafe { std::mem::zeroed() },
+        };
+        let bytes = unsafe {
+            slice::from_raw_parts(&event as *const UhidEvent as *const u8, size_of::<UhidEvent>())
+        };
+        let _ = self.file.write_all(bytes);
         println!("[VirtualDeck] Device destroyed");
     }
 }
